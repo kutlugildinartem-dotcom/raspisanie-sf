@@ -1,0 +1,181 @@
+package ru.uust.schedule.data.repo
+
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import ru.uust.schedule.data.local.AppDatabase
+import ru.uust.schedule.data.local.DayEntity
+import ru.uust.schedule.data.local.GroupEntity
+import ru.uust.schedule.data.local.SubjectNoteEntity
+import ru.uust.schedule.data.prefs.SettingsStore
+import ru.uust.schedule.data.remote.ScheduleApi
+import ru.uust.schedule.domain.DaySchedule
+import ru.uust.schedule.domain.FACULTIES
+import ru.uust.schedule.domain.Group
+import ru.uust.schedule.domain.Lesson
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+
+class ScheduleRepository(
+    context: Context,
+    private val api: ScheduleApi = ScheduleApi(),
+) {
+    private val db = AppDatabase.get(context)
+    private val settings = SettingsStore.get(context)
+    private val json = Json { ignoreUnknownKeys = true }
+    private val lessonsSerializer = ListSerializer(Lesson.serializer())
+
+    // --- чтение ---
+
+    /** Кешированный день. Сети не касается — этим пользуются виджеты. */
+    suspend fun cachedDay(groupId: Int, date: LocalDate): DaySchedule? =
+        withContext(Dispatchers.IO) {
+            db.scheduleDao().day(groupId, date.toString())?.toDomain()
+        }
+
+    fun weekFlow(groupId: Int, monday: LocalDate): Flow<List<DaySchedule>> =
+        db.scheduleDao()
+            .daysBetweenFlow(groupId, monday.toString(), monday.plusDays(6).toString())
+            .map { list -> list.map { it.toDomain() } }
+
+    suspend fun cachedWeek(groupId: Int, monday: LocalDate): List<DaySchedule> =
+        withContext(Dispatchers.IO) {
+            db.scheduleDao()
+                .daysBetween(groupId, monday.toString(), monday.plusDays(6).toString())
+                .map { it.toDomain() }
+        }
+
+    /** Все предметы группы, собранные из кеша расписания. */
+    suspend fun subjectsOf(groupId: Int): List<SubjectSummary> = withContext(Dispatchers.IO) {
+        val days = db.scheduleDao().daysBetween(groupId, "0000-00-00", "9999-99-99")
+        days.flatMap { it.toDomain().realLessons }
+            .groupBy { it.subject }
+            .map { (subject, lessons) ->
+                SubjectSummary(
+                    subject = subject,
+                    teachers = lessons.mapNotNull { it.teacher.ifBlank { null } }.distinct(),
+                    types = lessons.mapNotNull { it.type.ifBlank { null } }.distinct(),
+                    rooms = lessons.mapNotNull { it.room.ifBlank { null } }.distinct(),
+                    lessonCount = lessons.size,
+                )
+            }
+            .sortedBy { it.subject.lowercase() }
+    }
+
+    // --- синхронизация ---
+
+    /**
+     * Тянет недели со смещениями [offsets] и кладёт в кеш.
+     * Возвращает число сохранённых дней; при сетевой ошибке бросает исключение,
+     * но уже сохранённые недели остаются в базе.
+     */
+    suspend fun syncWeeks(groupId: Int, offsets: List<Int> = listOf(0, 1)): Int =
+        withContext(Dispatchers.IO) {
+            var saved = 0
+            val now = System.currentTimeMillis()
+            for (offset in offsets) {
+                val week = api.getWeek(groupId, offset)
+                val rows = week.days.map { day ->
+                    DayEntity(
+                        groupId = groupId,
+                        isoDate = day.isoDate,
+                        dayName = day.dayName,
+                        lessonsJson = json.encodeToString(lessonsSerializer, day.lessons),
+                        fetchedAt = now,
+                    )
+                }
+                db.scheduleDao().upsertDays(rows)
+                saved += rows.size
+            }
+            db.scheduleDao().pruneOlderThan(LocalDate.now().minusDays(30).toString())
+            saved
+        }
+
+    /** Нужно ли обновлять: кеш старше [maxAgeMinutes] или пуст. */
+    suspend fun isStale(groupId: Int, maxAgeMinutes: Long = 180): Boolean =
+        withContext(Dispatchers.IO) {
+            val monday = mondayOf(LocalDate.now())
+            val oldest = db.scheduleDao()
+                .oldestFetchedAt(groupId, monday.toString(), monday.plusDays(13).toString())
+                ?: return@withContext true
+            ChronoUnit.MINUTES.between(
+                java.time.Instant.ofEpochMilli(oldest),
+                java.time.Instant.now(),
+            ) >= maxAgeMinutes
+        }
+
+    // --- справочник групп ---
+
+    suspend fun ensureGroupsLoaded(force: Boolean = false) = withContext(Dispatchers.IO) {
+        if (!force && db.groupDao().count() > 0) return@withContext
+        val all = FACULTIES.flatMap { f ->
+            runCatching { api.getGroups(f.id, f.name) }.getOrDefault(emptyList())
+        }
+        if (all.isNotEmpty()) {
+            db.groupDao().insertAll(all.map { GroupEntity(it.id, it.name, it.facultyId, it.facultyName) })
+        }
+    }
+
+    suspend fun groupsOfFaculty(facultyId: Int): List<Group> = withContext(Dispatchers.IO) {
+        db.groupDao().byFaculty(facultyId).map { Group(it.id, it.name, it.facultyId, it.facultyName) }
+    }
+
+    suspend fun searchGroups(query: String): List<Group> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) return@withContext emptyList()
+        db.groupDao().search(q).map { Group(it.id, it.name, it.facultyId, it.facultyName) }
+    }
+
+    suspend fun groupName(groupId: Int): String? = withContext(Dispatchers.IO) {
+        db.groupDao().byId(groupId)?.name
+    }
+
+    // --- заметки ---
+
+    fun notesFlow(groupId: Int): Flow<Map<String, SubjectNoteEntity>> =
+        db.noteDao().notesFlow(groupId).map { list -> list.associateBy { it.subject } }
+
+    suspend fun note(groupId: Int, subject: String): SubjectNoteEntity? =
+        withContext(Dispatchers.IO) { db.noteDao().note(groupId, subject) }
+
+    suspend fun notes(groupId: Int): Map<String, SubjectNoteEntity> =
+        withContext(Dispatchers.IO) { db.noteDao().notes(groupId).associateBy { it.subject } }
+
+    suspend fun saveNote(note: SubjectNoteEntity) = withContext(Dispatchers.IO) {
+        db.noteDao().upsert(note.copy(updatedAt = System.currentTimeMillis()))
+    }
+
+    suspend fun deleteNote(groupId: Int, subject: String) = withContext(Dispatchers.IO) {
+        db.noteDao().delete(groupId, subject)
+    }
+
+    private fun DayEntity.toDomain() = DaySchedule(
+        isoDate = isoDate,
+        dayName = dayName,
+        lessons = runCatching { json.decodeFromString(lessonsSerializer, lessonsJson) }
+            .getOrDefault(emptyList()),
+    )
+
+    companion object {
+        fun mondayOf(date: LocalDate): LocalDate =
+            date.minusDays((date.dayOfWeek.value - 1).toLong())
+
+        @Volatile private var instance: ScheduleRepository? = null
+
+        fun get(context: Context): ScheduleRepository = instance ?: synchronized(this) {
+            instance ?: ScheduleRepository(context.applicationContext).also { instance = it }
+        }
+    }
+}
+
+data class SubjectSummary(
+    val subject: String,
+    val teachers: List<String>,
+    val types: List<String>,
+    val rooms: List<String>,
+    val lessonCount: Int,
+)

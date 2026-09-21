@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Расписание СФ</string>
+    <string name="day_widget_description">Пары на день с переключением сегодня/завтра</string>
+    <string name="next_lesson_widget_description">Ближайшая пара и время до её начала</string>
+    <string name="week_widget_description">Вся неделя одним списком</string>
+    <string name="note_widget_description">Заметки по предметам на сегодня</string>
+</resources>

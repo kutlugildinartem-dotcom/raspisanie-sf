@@ -1,0 +1,203 @@
+package ru.uust.schedule.ui.components
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import ru.uust.schedule.data.update.UpdateState
+import ru.uust.schedule.ui.theme.LocalNeon
+
+/**
+ * Баннер обновления над расписанием.
+ *
+ * Появляется только когда есть что сказать: «доступна версия», ход загрузки
+ * или ошибка. В остальное время не занимает места.
+ */
+@Composable
+fun UpdateBanner(
+    state: UpdateState,
+    onInstall: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val visible = state !is UpdateState.Idle && state !is UpdateState.Checking
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+        modifier = modifier,
+    ) {
+        when (state) {
+            is UpdateState.Available -> AvailableBanner(state, onInstall, onDismiss)
+            is UpdateState.Downloading -> DownloadingBanner(state)
+            is UpdateState.ReadyToInstall -> InfoBanner("Подтвердите установку в окне Android")
+            is UpdateState.UpToDate -> InfoBanner("У вас последняя версия")
+            is UpdateState.Failed -> InfoBanner(state.message, isError = true)
+            else -> Unit
+        }
+    }
+}
+
+@Composable
+private fun AvailableBanner(
+    state: UpdateState.Available,
+    onInstall: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val neon = LocalNeon.current
+    val release = state.release
+
+    GlassCard(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+        corner = 18.dp,
+        glowScale = 1.4f,
+    ) {
+        Row(
+            Modifier.padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(neon.accent.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Rounded.Download, null,
+                    tint = neon.accent, modifier = Modifier.size(19.dp),
+                )
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Версия ${release.versionName}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = neon.textPrimary,
+                )
+                Text(
+                    release.notes.lineSequence().firstOrNull()?.takeIf { it.isNotBlank() }
+                        ?: "Обновление · ${release.sizeMb}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = neon.textMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(neon.accent.copy(alpha = 0.20f))
+                    .clickable(onClick = onInstall)
+                    .padding(horizontal = 14.dp, vertical = 9.dp)
+            ) {
+                Text(
+                    "Установить",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = neon.accent,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Rounded.Close, "Скрыть",
+                    tint = neon.textMuted, modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadingBanner(state: UpdateState.Downloading) {
+    val neon = LocalNeon.current
+
+    GlassCard(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+        corner = 18.dp,
+        glowScale = 1.2f,
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Загрузка ${state.release.versionName}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = neon.textPrimary,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "${(state.progress * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = neon.accent,
+                )
+            }
+            Spacer(Modifier.height(9.dp))
+            LinearProgressIndicator(
+                progress = { state.progress },
+                modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)),
+                color = neon.accent,
+                trackColor = neon.stroke.copy(alpha = 0.25f),
+                drawStopIndicator = {},
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfoBanner(text: String, isError: Boolean = false) {
+    val neon = LocalNeon.current
+    val tint = if (isError) neon.danger else neon.accent
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(tint.copy(alpha = 0.12f))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = tint)
+    }
+}

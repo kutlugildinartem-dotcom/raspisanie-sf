@@ -1,0 +1,7 @@
+-keep class ru.uust.schedule.domain.** { *; }
+-keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+-keepclasseswithmembers class kotlinx.serialization.json.** { kotlinx.serialization.KSerializer serializer(...); }
+-keep,includedescriptorclasses class ru.uust.schedule.**$$serializer { *; }
+-keepclassmembers class ru.uust.schedule.** { *** Companion; }
+-dontwarn org.jsoup.**
+-keep class org.jsoup.** { *; }
