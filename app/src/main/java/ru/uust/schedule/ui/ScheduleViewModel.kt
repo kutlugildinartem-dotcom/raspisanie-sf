@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.data.prefs.AppSettings
-import ru.uust.schedule.data.prefs.NeonTheme
+import ru.uust.schedule.data.prefs.AppTheme
 import ru.uust.schedule.data.prefs.SettingsStore
 import ru.uust.schedule.data.repo.ScheduleRepository
 import ru.uust.schedule.data.remote.ReleaseInfo
@@ -154,16 +154,9 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- тема ---
 
-    fun updateAppTheme(theme: NeonTheme) {
+    fun updateTheme(theme: AppTheme) {
         viewModelScope.launch {
-            store.update { it.copy(appTheme = theme) }
-            WidgetUpdater.updateAll(getApplication())
-        }
-    }
-
-    fun updateWidgetTheme(theme: NeonTheme?) {
-        viewModelScope.launch {
-            store.update { it.copy(widgetTheme = theme) }
+            store.update { it.copy(theme = theme) }
             WidgetUpdater.updateAll(getApplication())
         }
     }
@@ -190,7 +183,7 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
 
     fun notesFlow() = repo.notesFlow(settings.value.groupId)
 
-    fun saveNote(subject: String, text: String, hue: Int) {
+    fun saveNote(subject: String, text: String, hue: Int, custom: Boolean = false) {
         viewModelScope.launch {
             repo.saveNote(
                 SubjectNoteEntity(
@@ -198,10 +191,27 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
                     subject = subject,
                     note = text,
                     hue = hue,
+                    custom = custom,
                 )
             )
             loadDay(settings.value.groupId, _selectedDate.value)
             WidgetUpdater.updateAll(getApplication())
+        }
+    }
+
+    fun addSubject(name: String, onDone: () -> Unit) {
+        viewModelScope.launch {
+            repo.addCustomSubject(settings.value.groupId, name)
+            onDone()
+        }
+    }
+
+    fun deleteSubject(subject: String, onDone: () -> Unit) {
+        viewModelScope.launch {
+            repo.deleteNote(settings.value.groupId, subject)
+            loadDay(settings.value.groupId, _selectedDate.value)
+            WidgetUpdater.updateAll(getApplication())
+            onDone()
         }
     }
 

@@ -219,3 +219,30 @@ class VersionCompareTest {
         assertTrue(VersionCompare.isNewer("v2.0", "1.9"))
     }
 }
+
+/** Подписи дня в заголовке приложения и виджета. */
+class DayTitleTest {
+
+    private val monday = LocalDate.of(2026, 9, 21)
+
+    @Test
+    fun `ближайшие дни называются словами`() {
+        assertEquals("Сегодня", DayLogic.title(monday, monday))
+        assertEquals("Завтра", DayLogic.title(monday.plusDays(1), monday))
+        assertEquals("Послезавтра", DayLogic.title(monday.plusDays(2), monday))
+        assertEquals("Вчера", DayLogic.title(monday.minusDays(1), monday))
+    }
+
+    @Test
+    fun `дальние дни называются днём недели`() {
+        // На «через четыре дня» относительные слова уже заставляют считать в уме.
+        assertEquals("Пятница", DayLogic.title(monday.plusDays(4), monday))
+        assertEquals("Суббота", DayLogic.title(monday.plusDays(5), monday))
+    }
+
+    @Test
+    fun `полное имя дня в нижнем регистре для подзаголовка`() {
+        assertEquals("понедельник", DayLogic.fullDay(monday))
+        assertEquals("четверг", DayLogic.fullDay(monday.plusDays(3)))
+    }
+}

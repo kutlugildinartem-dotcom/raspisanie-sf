@@ -1,11 +1,11 @@
 package ru.uust.schedule.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,8 +20,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,71 +40,101 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.data.repo.SubjectSummary
 import ru.uust.schedule.ui.ScheduleViewModel
-import ru.uust.schedule.ui.components.GlassCard
-import ru.uust.schedule.ui.theme.LocalNeon
-import ru.uust.schedule.ui.theme.NeonPalette
+import ru.uust.schedule.ui.components.Card
+import ru.uust.schedule.ui.components.quietClickable
+import ru.uust.schedule.ui.theme.LocalPalette
+import ru.uust.schedule.ui.theme.Palette
 
 /**
  * Вкладка «Предметы».
  *
- * Список собирается из уже загруженного расписания, поэтому вручную заводить
- * предметы не нужно — добавляется только то, чего на сайте нет: заметка и цвет.
+ * Список собирается из расписания автоматически; вручную добавляют то, чего на
+ * сайте нет — факультатив, курсы, секцию. Удалить можно только добавленный
+ * вручную: предмет из расписания вернётся при следующей синхронизации, и
+ * кнопка «удалить» у него была бы ложным обещанием.
  */
 @Composable
 fun SubjectsScreen(vm: ScheduleViewModel) {
-    val neon = LocalNeon.current
+    val palette = LocalPalette.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val notes by vm.notesFlow().collectAsState(initial = emptyMap())
 
     var subjects by remember { mutableStateOf<List<SubjectSummary>>(emptyList()) }
     var editing by remember { mutableStateOf<SubjectSummary?>(null) }
+    var deleting by remember { mutableStateOf<SubjectSummary?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    var reloadToken by remember { mutableStateOf(0) }
 
-    LaunchedEffect(settings.groupId, notes.size) {
+    LaunchedEffect(settings.groupId, notes.size, reloadToken) {
         vm.loadSubjects { subjects = it }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(start = 18.dp, end = 18.dp, top = 56.dp, bottom = 10.dp)) {
-            Text(
-                "Предметы",
-                style = MaterialTheme.typography.displaySmall,
-                color = neon.textPrimary,
-            )
-            Text(
-                if (subjects.isEmpty()) settings.groupName
-                else "${subjects.size} предметов · ${settings.groupName}",
-                style = MaterialTheme.typography.bodyLarge,
-                color = neon.textMuted,
-            )
-        }
-
-        if (subjects.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Загрузите расписание,\nи предметы появятся здесь",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = neon.textMuted,
-                )
-            }
-        } else {
-            LazyColumn(
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 18.dp, end = 18.dp, bottom = 24.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 58.dp, bottom = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                items(subjects, key = { it.subject }) { summary ->
-                    SubjectCard(
-                        summary = summary,
-                        note = notes[summary.subject],
-                        onEdit = { editing = summary },
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Предметы",
+                        style = MaterialTheme.typography.displayMedium,
+                        color = palette.textPrimary,
                     )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        if (subjects.isEmpty()) settings.groupName
+                        else "${subjects.size} предметов · ${settings.groupName}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.textMuted,
+                    )
+                }
+
+                Box(
+                    Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(palette.accent)
+                        .quietClickable { adding = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.Add, "Добавить предмет",
+                        tint = palette.onAccent, modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+
+            if (subjects.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "Пока пусто — расписание подтянет предметы само",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = palette.textMuted,
+                    )
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(subjects, key = { it.subject }) { summary ->
+                        SubjectCard(
+                            summary = summary,
+                            note = notes[summary.subject],
+                            onEdit = { editing = summary },
+                            onDelete = { deleting = summary },
+                        )
+                    }
                 }
             }
         }
@@ -115,8 +146,43 @@ fun SubjectsScreen(vm: ScheduleViewModel) {
             existing = notes[summary.subject],
             onDismiss = { editing = null },
             onSave = { text, hue ->
-                vm.saveNote(summary.subject, text, hue)
+                vm.saveNote(summary.subject, text, hue, custom = summary.custom)
                 editing = null
+            },
+        )
+    }
+
+    if (adding) {
+        AddSubjectDialog(
+            onDismiss = { adding = false },
+            onAdd = { name ->
+                vm.addSubject(name) { reloadToken++ }
+                adding = false
+            },
+        )
+    }
+
+    deleting?.let { summary ->
+        val palette2 = LocalPalette.current
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            containerColor = palette2.surfaceHigh,
+            titleContentColor = palette2.textPrimary,
+            textContentColor = palette2.textSecondary,
+            title = { Text("Удалить «${summary.subject}»?") },
+            text = { Text("Предмет и заметка к нему исчезнут. Отменить будет нельзя.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteSubject(summary.subject) { reloadToken++ }
+                    deleting = null
+                }) {
+                    Text("Удалить", color = palette2.danger, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleting = null }) {
+                    Text("Отмена", color = palette2.textMuted)
+                }
             },
         )
     }
@@ -127,20 +193,17 @@ private fun SubjectCard(
     summary: SubjectSummary,
     note: SubjectNoteEntity?,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
 ) {
-    val neon = LocalNeon.current
-    val color = NeonPalette.subjectColor(summary.subject, neon, note?.hue ?: -1)
+    val palette = LocalPalette.current
+    val color = Palette.subjectColor(summary.subject, palette, note?.hue ?: -1)
 
-    GlassCard(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit),
-        corner = 18.dp,
-        accent = color,
-        glowScale = 0.5f,
-    ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
+    Card(Modifier.fillMaxWidth(), onClick = onEdit) {
+        Row(Modifier.padding(start = 14.dp, end = 12.dp, top = 15.dp, bottom = 15.dp)) {
             Box(
                 Modifier
-                    .size(width = 4.dp, height = if (note?.note.isNullOrBlank()) 46.dp else 70.dp)
+                    .width(3.dp)
+                    .height(if (note?.note.isNullOrBlank()) 36.dp else 58.dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(color)
             )
@@ -150,53 +213,108 @@ private fun SubjectCard(
                 Text(
                     summary.subject,
                     style = MaterialTheme.typography.titleMedium,
-                    color = neon.textPrimary,
+                    color = palette.textPrimary,
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    buildString {
-                        append(summary.teachers.take(2).joinToString(", "))
-                        if (summary.types.isNotEmpty()) {
-                            if (isNotEmpty()) append(" · ")
-                            append(summary.types.joinToString("/"))
-                        }
-                    }.ifBlank { "${summary.lessonCount} занятий" },
+                    when {
+                        summary.custom -> "Добавлен вручную"
+                        else -> buildString {
+                            append(summary.teachers.take(2).joinToString(", "))
+                            if (summary.types.isNotEmpty()) {
+                                if (isNotEmpty()) append(" · ")
+                                append(summary.types.joinToString("/"))
+                            }
+                        }.ifBlank { "${summary.lessonCount} занятий" }
+                    },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = neon.textMuted,
+                    color = palette.textMuted,
                     maxLines = 2,
                 )
 
                 if (!note?.note.isNullOrBlank()) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(9.dp))
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(11.dp))
                             .background(color.copy(alpha = 0.10f))
-                            .padding(horizontal = 10.dp, vertical = 7.dp)
+                            .padding(horizontal = 11.dp, vertical = 8.dp)
                     ) {
                         Text(
                             note!!.note,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = neon.textSecondary,
+                            color = palette.textSecondary,
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.width(8.dp))
-            Box(
-                Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(color.copy(alpha = 0.14f))
-                    .clickable(onClick = onEdit),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Rounded.Edit, "Заметка", tint = color, modifier = Modifier.size(16.dp))
+            if (summary.custom) {
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .quietClickable(onDelete),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.DeleteOutline, "Удалить",
+                        tint = palette.textMuted, modifier = Modifier.size(19.dp),
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun AddSubjectDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
+    val palette = LocalPalette.current
+    var name by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = palette.surfaceHigh,
+        titleContentColor = palette.textPrimary,
+        textContentColor = palette.textSecondary,
+        title = { Text("Новый предмет") },
+        text = {
+            Column {
+                Text(
+                    "Для того, чего нет в расписании на сайте",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.textMuted,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Например, Автошкола", color = palette.textMuted) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = textFieldColors(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onAdd(name) },
+                enabled = name.isNotBlank(),
+            ) {
+                Text(
+                    "Добавить",
+                    color = if (name.isNotBlank()) palette.accent else palette.textMuted,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена", color = palette.textMuted) }
+        },
+    )
 }
 
 @Composable
@@ -206,15 +324,15 @@ private fun NoteDialog(
     onDismiss: () -> Unit,
     onSave: (String, Int) -> Unit,
 ) {
-    val neon = LocalNeon.current
+    val palette = LocalPalette.current
     var text by remember { mutableStateOf(existing?.note.orEmpty()) }
     var hue by remember { mutableStateOf(existing?.hue ?: -1) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = neon.background,
-        titleContentColor = neon.textPrimary,
-        textContentColor = neon.textSecondary,
+        containerColor = palette.surfaceHigh,
+        titleContentColor = palette.textPrimary,
+        textContentColor = palette.textSecondary,
         title = { Text(summary.subject, style = MaterialTheme.typography.titleMedium) },
         text = {
             Column {
@@ -222,7 +340,7 @@ private fun NoteDialog(
                     Text(
                         "Аудитории: " + summary.rooms.take(3).joinToString(", "),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = neon.textMuted,
+                        color = palette.textMuted,
                     )
                     Spacer(Modifier.height(10.dp))
                 }
@@ -231,38 +349,32 @@ private fun NoteDialog(
                     value = text,
                     onValueChange = { text = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Что принести, дедлайны, кабинет…", color = neon.textMuted) },
+                    placeholder = { Text("Что принести, дедлайны…", color = palette.textMuted) },
                     minLines = 3,
                     shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = neon.accent,
-                        unfocusedBorderColor = neon.stroke,
-                        focusedTextColor = neon.textPrimary,
-                        unfocusedTextColor = neon.textPrimary,
-                        cursorColor = neon.accent,
-                    ),
+                    colors = textFieldColors(),
                 )
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(16.dp))
                 Text(
                     "Цвет метки",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = neon.textMuted,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = palette.textMuted,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(9.dp))
 
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     HueDot(
-                        color = NeonPalette.subjectColor(summary.subject, neon, -1),
+                        color = Palette.subjectColor(summary.subject, palette, -1),
                         selected = hue < 0,
                         onClick = { hue = -1 },
                     )
-                    listOf(0, 30, 60, 100, 140, 180, 200, 240, 280, 310, 340).forEach { h ->
+                    listOf(174, 200, 232, 262, 300, 340, 18, 38, 96, 145).forEach { h ->
                         HueDot(
-                            color = NeonPalette.hsv(h.toFloat(), 0.8f, 1f),
+                            color = Palette.subjectColor(summary.subject, palette, h),
                             selected = hue == h,
                             onClick = { hue = h },
                         )
@@ -272,34 +384,38 @@ private fun NoteDialog(
         },
         confirmButton = {
             TextButton(onClick = { onSave(text.trim(), hue) }) {
-                Text("Сохранить", color = neon.accent, fontWeight = FontWeight.Bold)
+                Text("Сохранить", color = palette.accent, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Отмена", color = neon.textMuted) }
+            TextButton(onClick = onDismiss) { Text("Отмена", color = palette.textMuted) }
         },
     )
 }
 
 @Composable
-private fun HueDot(
-    color: androidx.compose.ui.graphics.Color,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
+private fun textFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = LocalPalette.current.accent,
+    unfocusedBorderColor = LocalPalette.current.divider,
+    focusedTextColor = LocalPalette.current.textPrimary,
+    unfocusedTextColor = LocalPalette.current.textPrimary,
+    cursorColor = LocalPalette.current.accent,
+)
+
+@Composable
+private fun HueDot(color: Color, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(30.dp)
+            .size(32.dp)
             .clip(CircleShape)
-            .background(color.copy(alpha = if (selected) 1f else 0.55f))
-            .clickable(onClick = onClick),
+            .background(color.copy(alpha = if (selected) 1f else 0.45f))
+            .quietClickable(onClick),
         contentAlignment = Alignment.Center,
     ) {
         if (selected) {
             Icon(
                 Icons.Rounded.Check, null,
-                tint = androidx.compose.ui.graphics.Color.Black,
-                modifier = Modifier.size(16.dp),
+                tint = Color.White, modifier = Modifier.size(17.dp),
             )
         }
     }

@@ -1,8 +1,9 @@
 package ru.uust.schedule.widget
 
 import android.content.Context
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -19,34 +20,33 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.height
 import androidx.glance.layout.width
 import androidx.glance.unit.ColorProvider
-import androidx.compose.runtime.Composable
 import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.data.prefs.AppSettings
-import ru.uust.schedule.data.prefs.NeonTheme
+import ru.uust.schedule.data.prefs.AppTheme
 import ru.uust.schedule.data.prefs.SettingsStore
 import ru.uust.schedule.data.repo.ScheduleRepository
 import ru.uust.schedule.domain.DayLogic
 import ru.uust.schedule.domain.DaySchedule
-import ru.uust.schedule.ui.theme.NeonPalette
+import ru.uust.schedule.ui.theme.Palette
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-/** Смещение дня, которое пользователь «налистал» стрелками. Своё у каждого виджета. */
+/** Смещение дня, «налистанное» в виджете. Своё у каждого экземпляра. */
 val KEY_DAY_OFFSET = intPreferencesKey("day_offset")
 
-/** Дата, на которую был посчитан [KEY_DAY_OFFSET] (epochDay). Нужна, чтобы сбросить листание на новый день. */
+/** День, на который считалось смещение (epochDay) — чтобы сбросить его при смене суток. */
 val KEY_OFFSET_ANCHOR = intPreferencesKey("offset_anchor")
 
 /** Смещение недели для виджета «Неделя». */
 val KEY_WEEK_OFFSET = intPreferencesKey("week_offset")
 
 /**
- * Снимок всего, что нужно виджету для отрисовки. Собирается один раз перед
- * provideContent, чтобы в composable не было обращений к диску.
+ * Всё, что нужно виджету для отрисовки. Собирается до provideContent,
+ * чтобы в composable не было обращений к диску.
  */
 data class WidgetSnapshot(
     val settings: AppSettings,
-    val theme: NeonTheme,
+    val theme: AppTheme,
     val groupId: Int,
     val groupName: String,
     val date: LocalDate,
@@ -56,7 +56,7 @@ data class WidgetSnapshot(
     val today: LocalDate,
     val showTeacher: Boolean = true,
 ) {
-    val palette: NeonPalette get() = NeonPalette.from(theme)
+    val palette: Palette get() = Palette.from(theme)
     val isConfigured: Boolean get() = groupId != 0
 }
 
@@ -76,31 +76,28 @@ object WidgetSnapshotLoader {
 
         val settings = store.current()
         val config = store.widgetConfig(appWidgetId)
-        val theme = config.themeOverride ?: settings.effectiveWidgetTheme
         val groupId = if (config.groupIdOverride > 0) config.groupIdOverride else settings.groupId
 
         val now = LocalDateTime.now()
         val today = now.toLocalDate()
         val base = DayLogic.defaultDate(now, settings.switchHour)
 
-        // Листание живёт до смены суток: иначе виджет, оставленный на «послезавтра»,
-        // навсегда уезжал бы всё дальше от текущего дня.
+        // Налистанное смещение живёт до смены суток: иначе виджет, оставленный
+        // на послезавтра, уезжал бы всё дальше от текущего дня.
         val anchor = prefs[KEY_OFFSET_ANCHOR] ?: 0
-        val storedOffset = prefs[KEY_DAY_OFFSET] ?: 0
-        val offset = if (anchor.toLong() == today.toEpochDay()) storedOffset + dayShift else dayShift
+        val stored = prefs[KEY_DAY_OFFSET] ?: 0
+        val offset = if (anchor.toLong() == today.toEpochDay()) stored + dayShift else dayShift
 
         val date = DayLogic.shift(base, offset)
-        val day = if (groupId != 0) repo.cachedDay(groupId, date) else null
-        val notes = if (groupId != 0) repo.notes(groupId) else emptyMap()
 
         return WidgetSnapshot(
             settings = settings,
-            theme = theme,
+            theme = settings.theme,
             groupId = groupId,
             groupName = settings.groupName.ifBlank { repo.groupName(groupId).orEmpty() },
             date = date,
-            day = day,
-            notes = notes,
+            day = if (groupId != 0) repo.cachedDay(groupId, date) else null,
+            notes = if (groupId != 0) repo.notes(groupId) else emptyMap(),
             nowMinutes = now.hour * 60 + now.minute,
             today = today,
             showTeacher = config.showTeacher,
@@ -108,24 +105,22 @@ object WidgetSnapshotLoader {
     }
 }
 
-/** Стеклянная подложка виджета — та же визуальная логика, что у GlassCard в приложении. */
+/** Непрозрачная подложка виджета — тот же цвет карточки, что и в приложении. */
 @Composable
 fun WidgetFrame(
-    theme: NeonTheme,
+    theme: AppTheme,
     cornerDp: Int = 24,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val size: DpSize = LocalSize.current
+    val size = LocalSize.current
     val density = context.resources.displayMetrics.density
     val wPx = (size.width.value * density).toInt().coerceAtLeast(8)
     val hPx = (size.height.value * density).toInt().coerceAtLeast(8)
 
     Box(modifier = GlanceModifier.fillMaxSize()) {
         Image(
-            provider = ImageProvider(
-                WidgetBackground.render(wPx, hPx, theme, cornerDp * density)
-            ),
+            provider = ImageProvider(WidgetBackground.render(wPx, hPx, theme, cornerDp * density)),
             contentDescription = null,
             contentScale = ContentScale.FillBounds,
             modifier = GlanceModifier.fillMaxSize(),
@@ -136,10 +131,10 @@ fun WidgetFrame(
 
 fun androidx.compose.ui.graphics.Color.glance(): ColorProvider = ColorProvider(this)
 
-fun NeonPalette.subjectArgb(subject: String, hue: Int = -1): Int =
-    NeonPalette.subjectColor(subject, this, hue).toArgb()
+fun Palette.subjectArgb(subject: String, hue: Int = -1): Int =
+    Palette.subjectColor(subject, this, hue).toArgb()
 
-/** Скруглённый маркер заданного цвета — Glance не умеет рисовать фигуры напрямую. */
+/** Цветной маркер предмета. */
 @Composable
 fun ColorPill(
     argb: Int,
@@ -164,3 +159,9 @@ fun ColorPill(
     )
 }
 
+/**
+ * Сколько пар помещается — от этого зависит, показывать ли аудиторию
+ * и преподавателя. На низком виджете подробности съедают строки,
+ * из-за чего видно всего одну пару.
+ */
+fun isCompactHeight(height: Dp): Boolean = height.value < 190f

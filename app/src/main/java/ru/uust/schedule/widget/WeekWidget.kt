@@ -20,6 +20,7 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -67,60 +68,68 @@ private fun WeekContent(
 ) {
     val p = s.palette
     WidgetFrame(theme = s.theme) {
-        Column(GlanceModifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Column(GlanceModifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)) {
 
-            Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                WeekArrow(ARROW_LEFT, -1, p.accent.glance())
-                Spacer(GlanceModifier.width(4.dp))
-                Column(GlanceModifier.defaultWeight().clickable(actionRunCallback<OpenAppAction>())) {
-                    Text(
-                        text = when (weekOffset) {
-                            0 -> "Эта неделя"
-                            1 -> "След. неделя"
-                            -1 -> "Прошлая неделя"
-                            else -> DayLogic.formatDate(monday)
-                        },
-                        style = TextStyle(color = p.accent.glance(), fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold),
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = DayLogic.formatDate(monday) + " — " + DayLogic.formatDate(monday.plusDays(5)),
-                        style = TextStyle(color = p.textMuted.glance(), fontSize = 10.sp),
-                        maxLines = 1,
-                    )
-                }
-                Spacer(GlanceModifier.width(4.dp))
-                WeekArrow(ARROW_RIGHT, 1, p.accent.glance())
+            Column(
+                GlanceModifier.fillMaxWidth().clickable(actionRunCallback<OpenAppAction>())
+            ) {
+                Text(
+                    text = when (weekOffset) {
+                        0 -> "Эта неделя"
+                        1 -> "Следующая неделя"
+                        -1 -> "Прошлая неделя"
+                        else -> DayLogic.formatDate(monday)
+                    },
+                    style = TextStyle(
+                        color = p.textPrimary.glance(), fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    maxLines = 1,
+                )
+                Text(
+                    text = DayLogic.formatDate(monday) + " — " +
+                        DayLogic.formatDate(monday.plusDays(5)),
+                    style = TextStyle(color = p.accent.glance(), fontSize = 11.sp),
+                    maxLines = 1,
+                )
             }
 
-            Spacer(GlanceModifier.height(6.dp))
+            Spacer(GlanceModifier.height(9.dp))
 
             val withLessons = days.filter { it.realLessons.isNotEmpty() }
             when {
-                !s.isConfigured -> CenterHint("Выберите группу", p.textSecondary)
-                withLessons.isEmpty() -> CenterHint("На эту неделю пар нет", p.textSecondary)
+                !s.isConfigured -> Hint("Выберите группу", p.textSecondary)
+                withLessons.isEmpty() -> Hint("На эту неделю пар нет", p.textSecondary)
                 else -> LazyColumn(GlanceModifier.fillMaxSize()) {
                     items(withLessons) { day -> WeekDayBlock(day, s) }
                 }
             }
         }
+
+        // Зоны листания недель — поверх содержимого, чтобы краевые нажатия
+        // не перехватывались строками. Середина клики пропускает.
+        Row(GlanceModifier.fillMaxSize()) {
+            WeekTapZone(-1, GlanceModifier.defaultWeight())
+            Box(GlanceModifier.defaultWeight().fillMaxHeight()) {}
+            Box(GlanceModifier.defaultWeight().fillMaxHeight()) {}
+            WeekTapZone(1, GlanceModifier.defaultWeight())
+        }
     }
 }
 
+/** Невидимая зона листания недель. */
 @Composable
-private fun WeekArrow(glyph: String, delta: Int, color: androidx.glance.unit.ColorProvider) {
+private fun WeekTapZone(delta: Int, modifier: GlanceModifier) {
     Box(
-        modifier = GlanceModifier
-            .width(30.dp)
-            .height(30.dp)
+        modifier
+            .fillMaxHeight()
             .clickable(
-                actionRunCallback<ShiftWeekAction>(actionParametersOf(ShiftWeekAction.DELTA to delta))
+                actionRunCallback<ShiftWeekAction>(
+                    actionParametersOf(ShiftWeekAction.DELTA to delta)
+                )
             ),
         contentAlignment = Alignment.Center,
-    ) {
-        Text(glyph, style = TextStyle(color = color, fontSize = 20.sp, fontWeight = FontWeight.Bold))
-    }
+    ) {}
 }
 
 @Composable

@@ -43,8 +43,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.uust.schedule.domain.FACULTIES
 import ru.uust.schedule.domain.Group
 import ru.uust.schedule.ui.ScheduleViewModel
-import ru.uust.schedule.ui.components.GlassCard
-import ru.uust.schedule.ui.theme.LocalNeon
+import ru.uust.schedule.ui.components.Card
+import ru.uust.schedule.ui.theme.LocalPalette
 
 /**
  * Первый экран: выбор группы.
@@ -54,7 +54,7 @@ import ru.uust.schedule.ui.theme.LocalNeon
  */
 @Composable
 fun OnboardingScreen(vm: ScheduleViewModel) {
-    val neon = LocalNeon.current
+    val palette = LocalPalette.current
     val ui by vm.ui.collectAsStateWithLifecycle()
 
     var query by remember { mutableStateOf("") }
@@ -86,22 +86,22 @@ fun OnboardingScreen(vm: ScheduleViewModel) {
                 Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(neon.accent.copy(alpha = 0.16f)),
+                    .background(palette.tint(0.16f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Rounded.School, null, tint = neon.accent, modifier = Modifier.size(24.dp))
+                Icon(Icons.Rounded.School, null, tint = palette.accent, modifier = Modifier.size(24.dp))
             }
             Spacer(Modifier.width(14.dp))
             Column {
                 Text(
                     "Какая у вас группа?",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = neon.textPrimary,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = palette.textPrimary,
                 )
                 Text(
                     "Расписание СФ УУНиТ",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = neon.textMuted,
+                    color = palette.textMuted,
                 )
             }
         }
@@ -112,19 +112,19 @@ fun OnboardingScreen(vm: ScheduleViewModel) {
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Например, ПМИ21", color = neon.textMuted) },
-            leadingIcon = { Icon(Icons.Rounded.Search, null, tint = neon.accent) },
+            placeholder = { Text("Например, ПМИ21", color = palette.textMuted) },
+            leadingIcon = { Icon(Icons.Rounded.Search, null, tint = palette.accent) },
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = neon.accent,
-                unfocusedBorderColor = neon.stroke,
-                focusedContainerColor = neon.glass,
-                unfocusedContainerColor = neon.glass,
-                focusedTextColor = neon.textPrimary,
-                unfocusedTextColor = neon.textPrimary,
-                cursorColor = neon.accent,
+                focusedBorderColor = palette.accent,
+                unfocusedBorderColor = palette.divider,
+                focusedContainerColor = palette.surface,
+                unfocusedContainerColor = palette.surface,
+                focusedTextColor = palette.textPrimary,
+                unfocusedTextColor = palette.textPrimary,
+                cursorColor = palette.accent,
             ),
         )
 
@@ -146,12 +146,12 @@ fun OnboardingScreen(vm: ScheduleViewModel) {
         when {
             ui.loadingGroups -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = neon.accent)
+                    CircularProgressIndicator(color = palette.accent)
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "Загружаем список групп",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = neon.textMuted,
+                        color = palette.textMuted,
                     )
                 }
             }
@@ -160,7 +160,7 @@ fun OnboardingScreen(vm: ScheduleViewModel) {
                 Text(
                     if (query.isBlank()) "Групп не найдено" else "Ничего не нашлось",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = neon.textMuted,
+                    color = palette.textMuted,
                 )
             }
 
@@ -175,18 +175,18 @@ fun OnboardingScreen(vm: ScheduleViewModel) {
 
 @Composable
 private fun FacultyChip(name: String, selected: Boolean, onClick: () -> Unit) {
-    val neon = LocalNeon.current
+    val palette = LocalPalette.current
     Box(
         Modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) neon.accent.copy(alpha = 0.22f) else neon.glass)
+            .background(if (selected) palette.tint(0.18f) else palette.surface)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp)
     ) {
         Text(
             name,
             style = MaterialTheme.typography.labelLarge,
-            color = if (selected) neon.accent else neon.textSecondary,
+            color = if (selected) palette.accent else palette.textSecondary,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         )
     }
@@ -194,11 +194,10 @@ private fun FacultyChip(name: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun GroupRow(group: Group, showFaculty: Boolean, onClick: () -> Unit) {
-    val neon = LocalNeon.current
-    GlassCard(
+    val palette = LocalPalette.current
+    Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         corner = 16.dp,
-        glowScale = 0.5f,
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
@@ -208,17 +207,17 @@ private fun GroupRow(group: Group, showFaculty: Boolean, onClick: () -> Unit) {
                 Text(
                     group.name,
                     style = MaterialTheme.typography.titleMedium,
-                    color = neon.textPrimary,
+                    color = palette.textPrimary,
                 )
                 if (showFaculty) {
                     Text(
                         group.facultyName,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = neon.textMuted,
+                        color = palette.textMuted,
                     )
                 }
             }
-            Text("›", style = MaterialTheme.typography.titleLarge, color = neon.accent)
+            Text("›", style = MaterialTheme.typography.titleLarge, color = palette.accent)
         }
     }
 }

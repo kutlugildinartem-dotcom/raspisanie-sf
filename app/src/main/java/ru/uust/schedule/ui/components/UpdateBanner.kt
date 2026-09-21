@@ -34,7 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ru.uust.schedule.data.update.UpdateState
-import ru.uust.schedule.ui.theme.LocalNeon
+import ru.uust.schedule.ui.theme.LocalPalette
 
 /**
  * Баннер обновления над расписанием.
@@ -74,13 +74,12 @@ private fun AvailableBanner(
     onInstall: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val neon = LocalNeon.current
+    val palette = LocalPalette.current
     val release = state.release
 
-    GlassCard(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
         corner = 18.dp,
-        glowScale = 1.4f,
     ) {
         Row(
             Modifier.padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
@@ -90,12 +89,12 @@ private fun AvailableBanner(
                 Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(neon.accent.copy(alpha = 0.18f)),
+                    .background(palette.accent.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     Icons.Rounded.Download, null,
-                    tint = neon.accent, modifier = Modifier.size(19.dp),
+                    tint = palette.accent, modifier = Modifier.size(19.dp),
                 )
             }
 
@@ -105,13 +104,13 @@ private fun AvailableBanner(
                 Text(
                     "Версия ${release.versionName}",
                     style = MaterialTheme.typography.titleMedium,
-                    color = neon.textPrimary,
+                    color = palette.textPrimary,
                 )
                 Text(
                     release.notes.lineSequence().firstOrNull()?.takeIf { it.isNotBlank() }
                         ?: "Обновление · ${release.sizeMb}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = neon.textMuted,
+                    color = palette.textMuted,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -122,14 +121,14 @@ private fun AvailableBanner(
             Box(
                 Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(neon.accent.copy(alpha = 0.20f))
+                    .background(palette.accent.copy(alpha = 0.20f))
                     .clickable(onClick = onInstall)
                     .padding(horizontal = 14.dp, vertical = 9.dp)
             ) {
                 Text(
                     "Установить",
                     style = MaterialTheme.typography.labelLarge,
-                    color = neon.accent,
+                    color = palette.accent,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -143,7 +142,7 @@ private fun AvailableBanner(
             ) {
                 Icon(
                     Icons.Rounded.Close, "Скрыть",
-                    tint = neon.textMuted, modifier = Modifier.size(16.dp),
+                    tint = palette.textMuted, modifier = Modifier.size(16.dp),
                 )
             }
         }
@@ -152,33 +151,32 @@ private fun AvailableBanner(
 
 @Composable
 private fun DownloadingBanner(state: UpdateState.Downloading) {
-    val neon = LocalNeon.current
+    val palette = LocalPalette.current
 
-    GlassCard(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
         corner = 18.dp,
-        glowScale = 1.2f,
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Загрузка ${state.release.versionName}",
                     style = MaterialTheme.typography.titleMedium,
-                    color = neon.textPrimary,
+                    color = palette.textPrimary,
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
                     "${(state.progress * 100).toInt()}%",
                     style = MaterialTheme.typography.labelSmall,
-                    color = neon.accent,
+                    color = palette.accent,
                 )
             }
             Spacer(Modifier.height(9.dp))
             LinearProgressIndicator(
                 progress = { state.progress },
                 modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)),
-                color = neon.accent,
-                trackColor = neon.stroke.copy(alpha = 0.25f),
+                color = palette.accent,
+                trackColor = palette.divider,
                 drawStopIndicator = {},
             )
         }
@@ -187,13 +185,13 @@ private fun DownloadingBanner(state: UpdateState.Downloading) {
 
 @Composable
 private fun InfoBanner(text: String, isError: Boolean = false) {
-    val neon = LocalNeon.current
-    val tint = if (isError) neon.danger else neon.accent
+    val palette = LocalPalette.current
+    val tint = if (isError) palette.danger else palette.accent
 
     Box(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp)
+            .padding(horizontal = 20.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(tint.copy(alpha = 0.12f))
             .padding(horizontal = 14.dp, vertical = 10.dp)

@@ -49,10 +49,15 @@ class ScheduleRepository(
                 .map { it.toDomain() }
         }
 
-    /** Все предметы группы, собранные из кеша расписания. */
+    /**
+     * Предметы группы: найденные в расписании плюс заведённые вручную.
+     *
+     * Ручные предметы остаются в списке, даже когда их нет ни в одной неделе
+     * кеша — иначе заметка к редкому предмету исчезала бы вместе с ним.
+     */
     suspend fun subjectsOf(groupId: Int): List<SubjectSummary> = withContext(Dispatchers.IO) {
         val days = db.scheduleDao().daysBetween(groupId, "0000-00-00", "9999-99-99")
-        days.flatMap { it.toDomain().realLessons }
+        val fromSchedule = days.flatMap { it.toDomain().realLessons }
             .groupBy { it.subject }
             .map { (subject, lessons) ->
                 SubjectSummary(
@@ -61,10 +66,43 @@ class ScheduleRepository(
                     types = lessons.mapNotNull { it.type.ifBlank { null } }.distinct(),
                     rooms = lessons.mapNotNull { it.room.ifBlank { null } }.distinct(),
                     lessonCount = lessons.size,
+                    custom = false,
                 )
             }
-            .sortedBy { it.subject.lowercase() }
+
+        val known = fromSchedule.mapTo(mutableSetOf()) { it.subject }
+        val manual = db.noteDao().notes(groupId)
+            .filter { it.custom && it.subject !in known }
+            .map { note ->
+                SubjectSummary(
+                    subject = note.subject,
+                    teachers = emptyList(),
+                    types = emptyList(),
+                    rooms = emptyList(),
+                    lessonCount = 0,
+                    custom = true,
+                )
+            }
+
+        (fromSchedule + manual).sortedBy { it.subject.lowercase() }
     }
+
+    /** Заводит предмет вручную. Возвращает false, если такой уже есть. */
+    suspend fun addCustomSubject(groupId: Int, subject: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val name = subject.trim()
+            if (name.isEmpty()) return@withContext false
+            if (db.noteDao().note(groupId, name) != null) return@withContext false
+            db.noteDao().upsert(
+                SubjectNoteEntity(
+                    groupId = groupId,
+                    subject = name,
+                    custom = true,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            )
+            true
+        }
 
     // --- синхронизация ---
 
@@ -178,4 +216,6 @@ data class SubjectSummary(
     val types: List<String>,
     val rooms: List<String>,
     val lessonCount: Int,
+    /** Заведён вручную: такой предмет можно удалить насовсем. */
+    val custom: Boolean = false,
 )

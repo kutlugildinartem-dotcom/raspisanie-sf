@@ -28,8 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.uust.schedule.ui.ScheduleViewModel
-import ru.uust.schedule.ui.components.NeonBackground
-import ru.uust.schedule.ui.screens.NeonNavBar
+import ru.uust.schedule.ui.components.AppBackground
+import ru.uust.schedule.ui.screens.NavBar
 import ru.uust.schedule.ui.screens.OnboardingScreen
 import ru.uust.schedule.ui.screens.ScheduleScreen
 import ru.uust.schedule.ui.screens.SettingsScreen
@@ -65,9 +65,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by vm.settings.collectAsStateWithLifecycle()
 
-            UustTheme(theme = settings.appTheme) {
+            UustTheme(theme = settings.theme) {
                 Box(Modifier.fillMaxSize()) {
-                    NeonBackground {
+                    AppBackground {
                         if (!settings.onboarded || settings.groupId == 0) {
                             OnboardingScreen(vm)
                         } else {
@@ -93,7 +93,7 @@ private fun MainShell(vm: ScheduleViewModel) {
     Scaffold(
         containerColor = Color.Transparent,
         contentColor = Color.Transparent,
-        bottomBar = { NeonNavBar(current = tab, onSelect = { tab = it }) },
+        bottomBar = { NavBar(current = tab, onSelect = { tab = it }) },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
             AnimatedVisibility(

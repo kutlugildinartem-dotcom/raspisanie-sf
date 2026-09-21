@@ -63,10 +63,6 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { it.remove(widgetKey(appWidgetId)) }
     }
 
-    /** Тема, которой должен рисоваться конкретный виджет. */
-    suspend fun themeForWidget(appWidgetId: Int): NeonTheme =
-        widgetConfig(appWidgetId).themeOverride ?: current().effectiveWidgetTheme
-
     /** Группа, расписание которой показывает конкретный виджет. */
     suspend fun groupForWidget(appWidgetId: Int): Int {
         val override = widgetConfig(appWidgetId).groupIdOverride

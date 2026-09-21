@@ -8,11 +8,11 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,18 +20,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ChevronLeft
-import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,30 +36,35 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ru.uust.schedule.domain.DayLogic
-import ru.uust.schedule.ui.ScheduleViewModel
 import ru.uust.schedule.data.update.UpdateManager
 import ru.uust.schedule.data.update.UpdateState
+import ru.uust.schedule.domain.DayLogic
+import ru.uust.schedule.ui.ScheduleViewModel
 import ru.uust.schedule.ui.components.EmptyDayCard
 import ru.uust.schedule.ui.components.LessonCard
 import ru.uust.schedule.ui.components.UpdateBanner
-import ru.uust.schedule.ui.theme.LocalNeon
+import ru.uust.schedule.ui.components.quietClickable
+import ru.uust.schedule.ui.theme.LocalPalette
 import java.time.LocalDate
 import java.time.LocalTime
 import kotlin.math.abs
 
 /**
- * Основной экран: один день за раз.
+ * Главный экран: один день за раз.
  *
- * Дни листаются свайпом и стрелками — той же логикой, что и в виджете,
- * чтобы поведение не расходилось.
+ * Кнопок навигации и обновления здесь нет намеренно. Дни листаются свайпом
+ * и полосой недели, а расписание подтягивается само — при открытии экрана
+ * и фоновой задачей. Кнопка «обновить» означала бы, что приложению нельзя
+ * доверять без ручного вмешательства.
  */
 @Composable
 fun ScheduleScreen(vm: ScheduleViewModel) {
-    val neon = LocalNeon.current
+    val palette = LocalPalette.current
     val ui by vm.ui.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val date by vm.selectedDate.collectAsStateWithLifecycle()
+    val updateState by vm.updateState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     val today = LocalDate.now()
     val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
@@ -79,31 +76,21 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                 var drag = 0f
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        if (abs(drag) > 80f) vm.shiftDay(if (drag < 0) 1 else -1)
+                        if (abs(drag) > 70f) vm.shiftDay(if (drag < 0) 1 else -1)
                         drag = 0f
                     },
                     onHorizontalDrag = { _, amount -> drag += amount },
                 )
             }
     ) {
-        ScheduleHeader(
-            vm = vm,
-            date = date,
-            today = today,
-            groupName = settings.groupName,
-            loading = ui.loading,
-        )
+        Header(date = date, today = today, groupName = settings.groupName, syncing = ui.loading)
 
         WeekStrip(date = date, today = today, onPick = vm::selectDate)
 
-        val updateState by vm.updateState.collectAsStateWithLifecycle()
-        val context = LocalContext.current
         UpdateBanner(
             state = updateState,
             onInstall = {
                 val release = (updateState as? UpdateState.Available)?.release ?: return@UpdateBanner
-                // На Android 8+ без этого разрешения установка молча провалится,
-                // поэтому сначала отправляем пользователя его выдать.
                 if (UpdateManager.canInstallPackages(context)) {
                     vm.installUpdate(release)
                 } else {
@@ -111,36 +98,36 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                 }
             },
             onDismiss = vm::dismissUpdate,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 6.dp),
         )
 
         ui.error?.let { message ->
             Spacer(Modifier.height(8.dp))
             Box(
                 Modifier
-                    .padding(horizontal = 18.dp)
+                    .padding(horizontal = 20.dp)
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(neon.danger.copy(alpha = 0.14f))
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(palette.danger.copy(alpha = 0.12f))
                     .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .quietClickable { vm.refresh(force = true) }
             ) {
                 Text(
-                    message,
+                    "$message · нажмите, чтобы повторить",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = neon.danger,
+                    color = palette.danger,
                 )
             }
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
 
         AnimatedContent(
             targetState = date,
             transitionSpec = {
-                val forward = targetState > initialState
-                val offset = if (forward) 1 else -1
-                (slideInHorizontally { it / 3 * offset } + fadeIn())
-                    .togetherWith(slideOutHorizontally { -it / 3 * offset } + fadeOut())
+                val dir = if (targetState > initialState) 1 else -1
+                (slideInHorizontally { it / 4 * dir } + fadeIn())
+                    .togetherWith(slideOutHorizontally { -it / 4 * dir } + fadeOut())
                     .using(SizeTransform(clip = false))
             },
             label = "day",
@@ -151,24 +138,19 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                 .orEmpty()
 
             if (lessons.isEmpty()) {
-                Column(Modifier.padding(horizontal = 18.dp)) {
-                    EmptyDayCard(
-                        if (ui.day == null) "Нет данных — потяните обновить" else "Пар нет",
-                    )
+                Column(Modifier.padding(horizontal = 20.dp)) {
+                    EmptyDayCard(if (ui.day == null && ui.loading) "Загружаем…" else "Пар нет")
                 }
             } else {
                 LazyColumn(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = 18.dp, end = 18.dp, bottom = 24.dp,
-                    ),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(lessons, key = { it.number }) { lesson ->
                         val note = ui.notes[lesson.subject]
                         LessonCard(
                             lesson = lesson,
-                            isNow = shownDate == today &&
-                                lesson.startMin >= 0 &&
+                            isNow = shownDate == today && lesson.startMin >= 0 &&
                                 nowMinutes >= lesson.startMin && nowMinutes < lesson.endMin,
                             isPast = shownDate < today ||
                                 (shownDate == today && lesson.endMin in 0..nowMinutes),
@@ -182,133 +164,94 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     }
 }
 
+/**
+ * Заголовок: крупно — какой это день относительно сегодня, мелко — дата и группа.
+ * Индикатор синхронизации появляется, только когда она реально идёт.
+ */
 @Composable
-private fun ScheduleHeader(
-    vm: ScheduleViewModel,
+private fun Header(
     date: LocalDate,
     today: LocalDate,
     groupName: String,
-    loading: Boolean,
+    syncing: Boolean,
 ) {
-    val neon = LocalNeon.current
-    val relative = DayLogic.relativeLabel(date, today)
+    val palette = LocalPalette.current
 
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(start = 18.dp, end = 12.dp, top = 56.dp, bottom = 6.dp),
+            .padding(start = 20.dp, end = 20.dp, top = 58.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                text = relative ?: DayLogic.shortDay(date),
-                style = MaterialTheme.typography.displaySmall,
-                color = neon.textPrimary,
+                text = DayLogic.fullDay(date),
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.accent,
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = DayLogic.formatDate(date),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = neon.accent,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "  ·  $groupName",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = neon.textMuted,
-                )
-            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = DayLogic.title(date, today),
+                style = MaterialTheme.typography.displayMedium,
+                color = palette.textPrimary,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = "${DayLogic.formatDate(date)} · $groupName",
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textMuted,
+            )
         }
 
-        if (relative == null) {
-            IconBubble(Icons.Rounded.Today, "Сегодня") { vm.jumpToDefault() }
-            Spacer(Modifier.width(6.dp))
+        if (syncing) {
+            CircularProgressIndicator(
+                color = palette.textMuted,
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(18.dp),
+            )
         }
-
-        if (loading) {
-            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    color = neon.accent,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        } else {
-            IconBubble(Icons.Rounded.Refresh, "Обновить") { vm.refresh(force = true) }
-        }
-    }
-
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        IconBubble(Icons.Rounded.ChevronLeft, "Предыдущий день") { vm.shiftDay(-1) }
-        Spacer(Modifier.weight(1f))
-        IconBubble(Icons.Rounded.ChevronRight, "Следующий день") { vm.shiftDay(1) }
     }
 }
 
-@Composable
-private fun IconBubble(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    onClick: () -> Unit,
-) {
-    val neon = LocalNeon.current
-    Box(
-        Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(neon.glass)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, description, tint = neon.accent, modifier = Modifier.size(20.dp))
-    }
-}
-
-/** Полоса дней недели: быстрый прыжок на любой день без листания. */
+/** Полоса недели — она же навигация: заменяет стрелки и показывает, где ты находишься. */
 @Composable
 private fun WeekStrip(date: LocalDate, today: LocalDate, onPick: (LocalDate) -> Unit) {
-    val neon = LocalNeon.current
+    val palette = LocalPalette.current
     val monday = date.minusDays((date.dayOfWeek.value - 1).toLong())
 
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         (0..5).forEach { i ->
             val d = monday.plusDays(i.toLong())
             val selected = d == date
             val isToday = d == today
+
             Box(
                 Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(
-                        when {
-                            selected -> neon.accent.copy(alpha = 0.22f)
-                            isToday -> neon.glass
-                            else -> neon.glass.copy(alpha = neon.glass.alpha * 0.5f)
-                        }
-                    )
-                    .clickable { onPick(d) }
-                    .padding(vertical = 8.dp),
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(if (selected) palette.accent else palette.surface)
+                    .quietClickable { onPick(d) }
+                    .padding(vertical = 9.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         DayLogic.shortDay(d),
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (selected) neon.accent else neon.textMuted,
+                        color = if (selected) palette.onAccent.copy(alpha = 0.7f)
+                        else palette.textMuted,
                     )
+                    Spacer(Modifier.height(1.dp))
                     Text(
                         d.dayOfMonth.toString(),
                         style = MaterialTheme.typography.titleMedium,
                         color = when {
-                            selected -> neon.accent
-                            isToday -> neon.textPrimary
-                            else -> neon.textSecondary
+                            selected -> palette.onAccent
+                            isToday -> palette.accent
+                            else -> palette.textSecondary
                         },
                         fontWeight = if (selected || isToday) FontWeight.Bold else FontWeight.Normal,
                     )

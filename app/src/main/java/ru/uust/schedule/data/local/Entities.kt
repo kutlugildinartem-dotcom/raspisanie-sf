@@ -37,5 +37,7 @@ data class SubjectNoteEntity(
     /** Оттенок 0..360 для метки предмета; -1 — использовать акцент темы. */
     val hue: Int = -1,
     val pinned: Boolean = false,
+    /** Предмет добавлен вручную: его нет в расписании, но он должен остаться в списке. */
+    val custom: Boolean = false,
     val updatedAt: Long = 0L,
 )

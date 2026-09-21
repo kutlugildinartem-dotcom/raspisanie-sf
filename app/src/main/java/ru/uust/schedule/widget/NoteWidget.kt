@@ -83,8 +83,8 @@ private fun NoteContent(s: WidgetSnapshot) {
             Spacer(GlanceModifier.height(7.dp))
 
             when {
-                !s.isConfigured -> CenterHint("Выберите группу", p.textSecondary)
-                rows.isEmpty() -> CenterHint("Заметок на этот день нет", p.textMuted)
+                !s.isConfigured -> Hint("Выберите группу", p.textSecondary)
+                rows.isEmpty() -> Hint("Заметок на этот день нет", p.textMuted)
                 else -> LazyColumn(GlanceModifier.fillMaxSize()) {
                     items(rows) { row ->
                         Row(
