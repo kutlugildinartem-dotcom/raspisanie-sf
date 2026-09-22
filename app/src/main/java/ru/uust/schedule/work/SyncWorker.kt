@@ -30,11 +30,19 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (settings.groupId == 0) return Result.success()
 
         if (repo.isStale(settings.groupId, maxAgeMinutes = CACHE_TTL_MINUTES)) {
-            val ok = runCatching { repo.syncWeeks(settings.groupId, listOf(0, 1)) }.isSuccess
-            if (!ok) {
+            val sync = runCatching { repo.syncWeeks(settings.groupId, listOf(0, 1)) }
+            if (sync.isFailure) {
                 // Сеть недоступна — виджеты всё равно перерисуем на кеше, а WorkManager повторит.
                 WidgetUpdater.updateAllNow(applicationContext)
                 return Result.retry()
+            }
+            sync.getOrNull()?.let { result ->
+                if (settings.notifyScheduleChanges && result.changedDates.isNotEmpty()) {
+                    LessonNotifier.showScheduleChanged(applicationContext, result.changedDates)
+                }
+                if (settings.notifyNextWeekAdded && 1 in result.weekPublishedOffsets) {
+                    LessonNotifier.showNextWeekAdded(applicationContext)
+                }
             }
         }
 

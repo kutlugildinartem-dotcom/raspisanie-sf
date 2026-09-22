@@ -1,6 +1,7 @@
 package ru.uust.schedule.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -121,12 +123,11 @@ fun SettingsScreen(vm: ScheduleViewModel) {
             }
 
             Spacer(Modifier.height(16.dp))
-            LabeledSlider(
-                label = "Оттенок",
-                value = theme.hue / 360f,
-                display = "${theme.hue.toInt()}°",
-                onChange = { vm.updateTheme(theme.copy(hue = it * 360f)) },
+            HueSlider(
+                value = theme.hue,
+                onChange = { vm.updateTheme(theme.copy(hue = it)) },
             )
+            Spacer(Modifier.height(10.dp))
             LabeledSlider(
                 label = "Сочность",
                 value = theme.intensity,
@@ -182,6 +183,21 @@ fun SettingsScreen(vm: ScheduleViewModel) {
                     }
                 }
             }
+
+            Spacer(Modifier.height(14.dp))
+            ToggleRow(
+                title = "Изменения в расписании",
+                subtitle = "Когда пара на уже показанный день меняется на сайте",
+                checked = settings.notifyScheduleChanges,
+                onChange = { vm.updateExtraNotifications(it, settings.notifyNextWeekAdded) },
+            )
+            Spacer(Modifier.height(14.dp))
+            ToggleRow(
+                title = "Расписание на след. неделю добавлено",
+                subtitle = "Сайт публикует её не сразу — сообщим, когда появится",
+                checked = settings.notifyNextWeekAdded,
+                onChange = { vm.updateExtraNotifications(settings.notifyScheduleChanges, it) },
+            )
         }
 
         Section("Обновления") {
@@ -333,6 +349,48 @@ private fun Swatch(name: String, color: Color, selected: Boolean, onClick: () ->
             color = if (selected) palette.accent else palette.textMuted,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         )
+    }
+}
+
+/**
+ * Ползунок оттенка с радужной подложкой на дорожке.
+ *
+ * Обычный Slider тут не годится: без подсказки, какой цвет на какой позиции,
+ * ползунок приходится крутить вслепую и подглядывать в превью карточек.
+ */
+@Composable
+private fun HueSlider(value: Float, onChange: (Float) -> Unit) {
+    val palette = LocalPalette.current
+    val rainbow = remember {
+        Brush.horizontalGradient((0..360 step 30).map { Color.hsv(it.toFloat(), 0.85f, 0.9f) })
+    }
+
+    Column {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Оттенок", style = MaterialTheme.typography.bodyMedium, color = palette.textSecondary)
+            Spacer(Modifier.weight(1f))
+            Text("${value.toInt()}°", style = MaterialTheme.typography.labelSmall, color = palette.textMuted)
+        }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp)
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(rainbow)
+            )
+            Slider(
+                value = value.coerceIn(0f, 360f),
+                onValueChange = onChange,
+                valueRange = 0f..360f,
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color.Transparent,
+                    inactiveTrackColor = Color.Transparent,
+                ),
+            )
+        }
     }
 }
 

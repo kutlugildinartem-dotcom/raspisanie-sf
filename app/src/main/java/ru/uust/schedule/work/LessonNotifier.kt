@@ -34,20 +34,36 @@ import java.time.ZoneId
 object LessonNotifier {
 
     const val CHANNEL_ID = "lesson_reminders"
+    const val CHANNEL_UPDATES_ID = "schedule_updates"
     private const val REQUEST_BASE = 7000
+    private const val NOTIF_ID_CHANGES = 9001
+    private const val NOTIF_ID_NEXT_WEEK = 9002
 
+    /** Оба канала уведомлений: напоминания о парах и новости о расписании. */
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Напоминания о парах",
-            NotificationManager.IMPORTANCE_DEFAULT,
-        ).apply {
-            description = "Уведомление за несколько минут до начала пары"
-            enableVibration(true)
-        }
-        ContextCompat.getSystemService(context, NotificationManager::class.java)
-            ?.createNotificationChannel(channel)
+        val manager = ContextCompat.getSystemService(context, NotificationManager::class.java)
+            ?: return
+
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                "Напоминания о парах",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Уведомление за несколько минут до начала пары"
+                enableVibration(true)
+            }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_UPDATES_ID,
+                "Изменения расписания",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Когда расписание группы меняется или публикуется на сайте"
+            }
+        )
     }
 
     fun rescheduleToday(context: Context) {
@@ -77,9 +93,11 @@ object LessonNotifier {
             val millis = fireAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val pi = pendingIntent(context, index, lesson, settings.notifyMinutesBefore)
 
-            // Неточного будильника достаточно: напоминание за 15 минут не требует
-            // секундной точности и не просит у пользователя SCHEDULE_EXACT_ALARM.
-            alarms.set(AlarmManager.RTC_WAKEUP, millis, pi)
+            // setAndAllowWhileIdle вместо простого set(): будильник доставляется
+            // в ближайшее окно обслуживания Doze, а не откладывается до выхода
+            // телефона из режима сна. Точности до секунды здесь не нужно, поэтому
+            // разрешение SCHEDULE_EXACT_ALARM не запрашивается.
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pi)
         }
     }
 
@@ -141,6 +159,41 @@ object LessonNotifier {
         runCatching {
             NotificationManagerCompat.from(context).notify(subject.hashCode(), notification)
         }
+    }
+
+    /** Расписание на уже показанные дни поменялось — время, кабинет или отмена. */
+    fun showScheduleChanged(context: Context, dates: List<LocalDate>) {
+        ensureChannel(context)
+        val text = if (dates.size == 1) {
+            "Изменения на " + ru.uust.schedule.domain.DayLogic.formatDate(dates.first())
+        } else {
+            "Изменения на ${dates.size} дней"
+        }
+        notify(context, NOTIF_ID_CHANGES, "Расписание изменилось", text)
+    }
+
+    /** Сайт часто публикует следующую неделю не сразу — сообщаем, когда это случилось. */
+    fun showNextWeekAdded(context: Context) {
+        ensureChannel(context)
+        notify(context, NOTIF_ID_NEXT_WEEK, "Добавлено расписание на след. неделю", "Можно посмотреть в приложении")
+    }
+
+    private fun notify(context: Context, id: Int, title: String, text: String) {
+        val open = PendingIntent.getActivity(
+            context, id,
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_UPDATES_ID)
+            .setSmallIcon(R.drawable.ic_stat_schedule)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(id, notification) }
     }
 
     const val EXTRA_SUBJECT = "subject"

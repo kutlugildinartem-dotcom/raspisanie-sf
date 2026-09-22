@@ -56,8 +56,16 @@ data class AppSettings(
     val switchHour: Int = 17,
     val notificationsEnabled: Boolean = false,
     val notifyMinutesBefore: Int = 15,
+    /** Пуш, когда пара на уже показанный день меняется на сайте (время, аудитория, отмена). */
+    val notifyScheduleChanges: Boolean = false,
+    /** Пуш, когда для следующей недели впервые появляются пары — сайт публикует её не сразу. */
+    val notifyNextWeekAdded: Boolean = false,
     val onboarded: Boolean = false,
     val layout: ScheduleLayout = ScheduleLayout.Day,
+    /** Когда последний раз проверяли обновление приложения — гасит проверки чаще раза в день. */
+    val lastUpdateCheckAt: Long = 0L,
+    /** Версия релиза, которую пользователь явно закрыл — не показывать баннер снова для неё же. */
+    val dismissedUpdateVersion: String = "",
 )
 
 /** Как выглядит главный экран. */

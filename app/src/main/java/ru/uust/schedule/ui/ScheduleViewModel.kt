@@ -97,10 +97,16 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * Листание недели в «Ленте» и «Двух колонках».
+     *
+     * Двигает саму [_selectedDate], а не отдельное поле недели: раньше неделя
+     * хранилась параллельно и любое сохранение (оценка, ДЗ, заметка) вызывало
+     * [loadDay] от устаревшей даты и откатывало экран на прошлую неделю.
+     * Одна дата — один источник правды, откатывать больше нечему.
+     */
     fun shiftWeek(delta: Int) {
-        val monday = _ui.value.weekMonday.plusWeeks(delta.toLong())
-        _ui.value = _ui.value.copy(weekMonday = monday)
-        viewModelScope.launch { loadWeek(settings.value.groupId, monday) }
+        _selectedDate.value = DayLogic.skipSunday(_selectedDate.value.plusWeeks(delta.toLong()))
     }
 
     fun shiftDay(delta: Int) {
@@ -208,6 +214,17 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             store.update { it.copy(notificationsEnabled = enabled, notifyMinutesBefore = minutesBefore) }
             SyncScheduler.schedule(getApplication())
+            // Без этого включение тумблера ставило будильники только на следующий
+            // тик фоновой задачи (до получаса) — сегодняшние пары могли остаться без напоминания.
+            ru.uust.schedule.work.LessonNotifier.rescheduleToday(getApplication())
+        }
+    }
+
+    fun updateExtraNotifications(scheduleChanges: Boolean, nextWeekAdded: Boolean) {
+        viewModelScope.launch {
+            store.update {
+                it.copy(notifyScheduleChanges = scheduleChanges, notifyNextWeekAdded = nextWeekAdded)
+            }
         }
     }
 

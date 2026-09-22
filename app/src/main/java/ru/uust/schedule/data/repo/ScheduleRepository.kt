@@ -135,12 +135,22 @@ class ScheduleRepository(
      * Возвращает число сохранённых дней; при сетевой ошибке бросает исключение,
      * но уже сохранённые недели остаются в базе.
      */
-    suspend fun syncWeeks(groupId: Int, offsets: List<Int> = listOf(0, 1)): Int =
+    suspend fun syncWeeks(groupId: Int, offsets: List<Int> = listOf(0, 1)): SyncResult =
         withContext(Dispatchers.IO) {
             var saved = 0
+            val changed = mutableListOf<LocalDate>()
+            val weekPublished = mutableSetOf<Int>()
             val now = System.currentTimeMillis()
+
             for (offset in offsets) {
                 val week = api.getWeek(groupId, offset)
+                if (week.days.isEmpty()) continue
+
+                // Снимок «было» снимается ДО перезаписи — иначе сравнивать не с чем.
+                val before = db.scheduleDao()
+                    .daysBetween(groupId, week.days.first().isoDate, week.days.last().isoDate)
+                    .associateBy { it.isoDate }
+
                 val rows = week.days.map { day ->
                     DayEntity(
                         groupId = groupId,
@@ -152,9 +162,24 @@ class ScheduleRepository(
                 }
                 db.scheduleDao().upsertDays(rows)
                 saved += rows.size
+
+                // «Было пусто, стало не пусто» — это первая публикация недели, не «изменение».
+                // «Было и раньше, но по-другому» — это правка уже опубликованного расписания.
+                week.days.forEach { day ->
+                    val prev = before[day.isoDate] ?: return@forEach
+                    val newJson = json.encodeToString(lessonsSerializer, day.lessons)
+                    if (prev.lessonsJson != newJson) changed += LocalDate.parse(day.isoDate)
+                }
+
+                if (before.isNotEmpty()) {
+                    val oldTotal = before.values.sumOf { it.toDomain().realLessons.size }
+                    val newTotal = week.days.sumOf { d -> d.lessons.count { it.subject.isNotBlank() } }
+                    if (oldTotal == 0 && newTotal > 0) weekPublished += offset
+                }
             }
+
             db.scheduleDao().pruneOlderThan(LocalDate.now().minusDays(30).toString())
-            saved
+            SyncResult(saved, changed, weekPublished)
         }
 
     /** Догружает неделю, если её нет в кеше — режимы «лента» и «две колонки» листают далеко. */
@@ -335,6 +360,19 @@ class ScheduleRepository(
         }
     }
 }
+
+/**
+ * Итог одного [ScheduleRepository.syncWeeks].
+ *
+ * [changedDates] — дни, где расписание было и раньше, но стало другим (реальная
+ * правка сайтом). [weekPublishedOffsets] — недели, которые были в кеше пустыми
+ * и в этот раз впервые получили пары (первая публикация, не правка).
+ */
+data class SyncResult(
+    val savedDays: Int,
+    val changedDates: List<LocalDate>,
+    val weekPublishedOffsets: Set<Int>,
+)
 
 data class SubjectSummary(
     val subject: String,

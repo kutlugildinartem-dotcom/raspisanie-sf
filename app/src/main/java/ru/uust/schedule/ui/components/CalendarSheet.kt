@@ -1,8 +1,6 @@
 package ru.uust.schedule.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -25,7 +23,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ru.uust.schedule.ui.theme.LocalPalette
@@ -33,14 +30,15 @@ import java.time.LocalDate
 import java.time.YearMonth
 
 /**
- * Месяц в духе системного календаря: круглые клетки, минимум линий,
- * выбранный день — залитый кружок.
+ * Месяц в стиле системного календаря: скруглённые квадратные клетки
+ * одного цвета, выбранный день — тонкое кольцо, а не заливка.
  *
- * Заливка клетки показывает загруженность: свободный день прозрачный,
- * полный залит акцентом целиком. Так месяц читается одним взглядом, без цифр.
+ * Загруженность дня показывают точки под числом (1 точка на пару, максимум
+ * три плюс «+N»), а не оттенок клетки: ровный фон клеток читается спокойнее
+ * и ближе к тому, как выглядят системные календари.
  *
- * Дни, которых нет в кеше, намеренно не красятся: «нет данных» и «нет пар»
- * это разные вещи, и одинаковый вид вводил бы в заблуждение.
+ * Дни, которых нет в кеше, точек не получают: «нет данных» и «пар нет»
+ * — разные вещи, метить их одинаково нельзя.
  */
 @Composable
 fun CalendarSheet(
@@ -58,32 +56,30 @@ fun CalendarSheet(
         modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(28.dp))
             .background(palette.surface)
-            .padding(horizontal = 14.dp, vertical = 14.dp)
+            .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 16.dp)
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    monthName(month),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = palette.textPrimary,
-                )
-                Text(
-                    busyHint(month, counts),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = palette.textMuted,
-                )
-            }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             MonthArrow("‹", "Предыдущий месяц") { onMonthChange(month.minusMonths(1)) }
-            Spacer(Modifier.width(4.dp))
+            Text(
+                monthName(month),
+                style = MaterialTheme.typography.headlineSmall,
+                color = palette.textPrimary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
             MonthArrow("›", "Следующий месяц") { onMonthChange(month.plusMonths(1)) }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
 
         Row(Modifier.fillMaxWidth()) {
-            listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс").forEach { name ->
+            listOf("пн", "вт", "ср", "чт", "пт", "сб", "вс").forEach { name ->
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Text(
                         name,
@@ -94,7 +90,7 @@ fun CalendarSheet(
             }
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(6.dp))
 
         val first = month.atDay(1)
         // Неделя начинается с понедельника, поэтому сетку смещаем на день недели первого числа.
@@ -134,68 +130,63 @@ private fun DayCell(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val shape = RoundedCornerShape(16.dp)
 
-    // Выбранный день заливается целиком, остальные — по загруженности.
-    val fill by animateColorAsState(
-        when {
-            isSelected -> palette.accent
-            else -> palette.accent.copy(alpha = loadAlpha(count))
-        },
-        label = "cell",
+    val ring by animateColorAsState(
+        if (isSelected || isToday) palette.accent else palette.accent.copy(alpha = 0f),
+        label = "ring",
     )
 
-    Box(modifier.aspectRatio(1f).padding(2.dp), contentAlignment = Alignment.Center) {
+    Box(modifier.aspectRatio(1f).padding(2.dp)) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(CircleShape)
-                .background(fill)
-                .then(
-                    if (isToday && !isSelected) Modifier.border(1.5.dp, palette.accent, CircleShape)
-                    else Modifier
-                )
+                .clip(shape)
+                .background(palette.surfaceHigh)
+                .border(if (isSelected) 2.dp else 1.5.dp, ring, shape)
                 .quietClickable(onClick),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                date.dayOfMonth.toString(),
-                style = MaterialTheme.typography.labelLarge,
-                color = when {
-                    isSelected -> palette.onAccent
-                    (count ?: 0) >= 4 -> palette.textPrimary
-                    isToday -> palette.accent
-                    else -> palette.textSecondary
-                },
-                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    date.dayOfMonth.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isSelected || isToday) palette.accent else palette.textPrimary,
+                    fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+                )
+                if ((count ?: 0) > 0) {
+                    Spacer(Modifier.height(3.dp))
+                    LoadDots(count!!, palette.accent)
+                }
+            }
         }
     }
 }
 
-/**
- * Прозрачность клетки по числу пар.
- *
- * Шкала нелинейная: разница между «одной парой» и «двумя» важнее для глаза,
- * чем между «пятью» и «шестью», поэтому нижние ступени разведены сильнее.
- */
-private fun loadAlpha(count: Int?): Float = when (count) {
-    null -> 0f      // нет данных
-    0 -> 0f         // свободный день
-    1 -> 0.12f
-    2 -> 0.26f
-    3 -> 0.44f
-    4 -> 0.62f
-    5 -> 0.80f
-    else -> 0.94f
-}
-
-private fun busyHint(month: YearMonth, counts: Map<LocalDate, Int>): String {
-    val inMonth = counts.filterKeys { YearMonth.from(it) == month }
-    if (inMonth.isEmpty()) return "Нет данных"
-    val lessons = inMonth.values.sum()
-    val busyDays = inMonth.count { it.value > 0 }
-    return "$lessons пар · $busyDays учебных дней"
+/** До трёх точек по числу пар, дальше — «+N», чтобы клетка не раздувалась. */
+@Composable
+private fun LoadDots(count: Int, accent: androidx.compose.ui.graphics.Color) {
+    val palette = LocalPalette.current
+    if (count > 4) {
+        Text(
+            "+$count",
+            style = MaterialTheme.typography.labelSmall,
+            color = accent,
+            fontWeight = FontWeight.Bold,
+        )
+        return
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        repeat(count.coerceAtMost(4)) {
+            Box(
+                Modifier
+                    .size(4.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+            )
+        }
+    }
 }
 
 private fun monthName(month: YearMonth): String =
@@ -231,7 +222,7 @@ private fun MonthArrow(glyph: String, description: String, onClick: () -> Unit) 
 @Composable
 fun DragHandle(modifier: Modifier = Modifier) {
     val palette = LocalPalette.current
-    Box(modifier.fillMaxWidth().padding(vertical = 7.dp), contentAlignment = Alignment.Center) {
+    Box(modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
         Box(
             Modifier
                 .width(38.dp)

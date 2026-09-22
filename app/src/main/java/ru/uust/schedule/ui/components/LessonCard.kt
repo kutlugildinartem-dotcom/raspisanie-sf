@@ -84,12 +84,14 @@ fun LessonCard(
                     if (lesson.type.isNotBlank()) {
                         Spacer(Modifier.width(8.dp))
                         Tag(
-                            text = lessonTypeLabel(lesson.type),
+                            // В узкой карточке (два столбца) разворачивать «Лек» в «Лекция»
+                            // уже некуда — сократили бы место, отведённое под кабинет.
+                            text = if (compact) lesson.type.trim() else lessonTypeLabel(lesson.type),
                             color = color.copy(alpha = fade),
                             filled = true,
                         )
                     }
-                    if (lesson.room.isNotBlank()) {
+                    if (lesson.room.isNotBlank() && !compact) {
                         Spacer(Modifier.width(6.dp))
                         Tag(
                             text = lesson.room,
@@ -101,10 +103,6 @@ fun LessonCard(
                     Spacer(Modifier.weight(1f))
 
                     record?.grade?.takeIf { it > 0 }?.let { GradeBadge(it, palette) }
-                    if (record?.hasHomework == true) {
-                        Spacer(Modifier.width(6.dp))
-                        HomeworkDot(done = record.homeworkDone, accent = palette.accent)
-                    }
                 }
 
                 Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
@@ -119,21 +117,47 @@ fun LessonCard(
                     textDecoration = if (isPast && !isNow) TextDecoration.LineThrough else null,
                 )
 
-                val teacher = teacherFull?.ifBlank { null } ?: lesson.teacher.ifBlank { null }
-                if (teacher != null && !compact) {
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        text = teacher,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = palette.textMuted.copy(alpha = fade),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                if (compact) {
+                    // В двух колонках места на бордюр-чип с кабинетом уже не было —
+                    // выводим его простой строкой, она гарантированно помещается.
+                    if (lesson.room.isNotBlank()) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = lesson.room,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.textMuted.copy(alpha = fade),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (!record?.homework.isNullOrBlank()) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = record!!.homework,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (record.homeworkDone) palette.textMuted else palette.accent,
+                            textDecoration = if (record.homeworkDone) TextDecoration.LineThrough else null,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                } else {
+                    val teacher = teacherFull?.ifBlank { null } ?: lesson.teacher.ifBlank { null }
+                    if (teacher != null) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = teacher,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.textMuted.copy(alpha = fade),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
 
-                if (!record?.homework.isNullOrBlank() && !compact) {
-                    Spacer(Modifier.height(10.dp))
-                    HomeworkStrip(record!!, palette.accent)
+                    if (!record?.homework.isNullOrBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        HomeworkStrip(record!!, palette.accent)
+                    }
                 }
 
                 if (!note.isNullOrBlank() && !compact) {
@@ -184,36 +208,6 @@ private fun Tag(text: String, color: Color, filled: Boolean) {
             color = color,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
-        )
-    }
-}
-
-/**
- * Индикатор домашки: точка, а не значок с подписью.
- * Задача — попасться на глаза при просмотре дня, а не требовать внимания.
- */
-@Composable
-private fun HomeworkDot(done: Boolean, accent: Color) {
-    val palette = LocalPalette.current
-    if (done) {
-        Box(
-            Modifier
-                .size(16.dp)
-                .clip(CircleShape)
-                .background(palette.textMuted.copy(alpha = 0.25f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Rounded.Check, "Домашка сделана",
-                tint = palette.textMuted, modifier = Modifier.size(11.dp),
-            )
-        }
-    } else {
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(accent)
         )
     }
 }

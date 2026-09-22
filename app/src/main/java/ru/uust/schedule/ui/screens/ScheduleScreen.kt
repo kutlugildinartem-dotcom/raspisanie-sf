@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -90,14 +91,66 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     val today = LocalDate.now()
     val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
 
+    // Открывает календарь при потягивании вниз в любом месте контента (когда список
+    // уже докручен до верха и тянуть дальше некуда) и задвигает его при потягивании
+    // вверх — тот же приём, что у pull-to-refresh, только без спиннера.
+    var pullAccum by remember { mutableStateOf(0f) }
+    val calendarConnection = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+            ): androidx.compose.ui.geometry.Offset {
+                if (!ui.calendarOpen && available.y > 0f) {
+                    pullAccum += available.y
+                    if (pullAccum > 90f) {
+                        vm.toggleCalendar()
+                        pullAccum = 0f
+                    }
+                    return available.copy(x = 0f)
+                }
+                if (ui.calendarOpen && available.y < 0f) {
+                    pullAccum += available.y
+                    if (pullAccum < -70f) {
+                        vm.toggleCalendar()
+                        pullAccum = 0f
+                    }
+                    return available.copy(x = 0f)
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override suspend fun onPostFling(
+                consumed: androidx.compose.ui.unit.Velocity,
+                available: androidx.compose.ui.unit.Velocity,
+            ): androidx.compose.ui.unit.Velocity {
+                pullAccum = 0f
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
+    }
+
     Column(
         Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
+            .nestedScroll(calendarConnection)
+            .pointerInput(settings.layout) {
                 var drag = 0f
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        if (abs(drag) > 70f) vm.shiftDay(if (drag < 0) 1 else -1)
+                        if (abs(drag) > 70f) {
+                            val forward = drag < 0
+                            // В недельных режимах горизонтальный свайп листает неделю,
+                            // а не отдельный день — дня там на экране всё равно не видно.
+                            if (settings.layout == ScheduleLayout.Feed ||
+                                settings.layout == ScheduleLayout.Grid
+                            ) {
+                                vm.shiftWeek(if (forward) 1 else -1)
+                            } else {
+                                vm.shiftDay(if (forward) 1 else -1)
+                            }
+                        }
                         drag = 0f
                     },
                     onHorizontalDrag = { _, amount -> drag += amount },
@@ -134,6 +187,9 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                     )
                 }
             ) {
+                // Ручка над карточкой, а не под ней — так и выглядят системные
+                // выезжающие панели: сначала «за что потянуть», потом содержимое.
+                DragHandle()
                 CalendarSheet(
                     month = ui.calendarMonth,
                     selected = date,
@@ -142,7 +198,6 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                     onPick = vm::selectDate,
                     onMonthChange = vm::showMonth,
                 )
-                DragHandle()
             }
         }
 
@@ -367,12 +422,17 @@ private fun DateStrip(
         }.distinct()
     }
     val selectedIndex = days.indexOf(date)
+    val density = androidx.compose.ui.platform.LocalDensity.current
 
     LaunchedEffect(date) {
-        if (selectedIndex >= 0) {
-            // Держим выбранный день ближе к левому краю, чтобы было видно, что дальше.
-            listState.animateScrollToItem((selectedIndex - 2).coerceAtLeast(0))
-        }
+        if (selectedIndex < 0) return@LaunchedEffect
+        // Центрируем выбранный день в видимой области, а не прижимаем к краю —
+        // тогда видно и что было, и что будет, в равной мере.
+        val itemWidthPx = with(density) { (DATE_ITEM_WIDTH + DATE_ITEM_GAP).toPx() }
+        val viewport = listState.layoutInfo.viewportSize.width.takeIf { it > 0 }
+            ?: return@LaunchedEffect
+        val centerOffset = (viewport / 2 - itemWidthPx / 2).toInt().coerceAtLeast(0)
+        listState.animateScrollToItem(selectedIndex, -centerOffset)
     }
 
     LazyRow(
@@ -390,7 +450,7 @@ private fun DateStrip(
                 )
             },
         contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(DATE_ITEM_GAP),
     ) {
         items(days, key = { it.toEpochDay() }) { d ->
             val selected = d == date
@@ -398,7 +458,7 @@ private fun DateStrip(
 
             Box(
                 Modifier
-                    .width(50.dp)
+                    .width(DATE_ITEM_WIDTH)
                     .clip(RoundedCornerShape(15.dp))
                     .background(if (selected) palette.accent else palette.surface)
                     .quietClickable { onPick(d) }
@@ -431,3 +491,5 @@ private fun DateStrip(
 
 private const val WEEKS_BACK = 4
 private const val WEEKS_FORWARD = 8
+private val DATE_ITEM_WIDTH = 50.dp
+private val DATE_ITEM_GAP = 6.dp
