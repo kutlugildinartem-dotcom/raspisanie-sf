@@ -105,4 +105,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver)
+
+    // Клиент применяет бинарный патч к своему же установленному APK — только
+    // bspatch, без нативного кода, поэтому работает одинаково на всех ABI.
+    implementation(libs.jbsdiff)
+    implementation(libs.commons.compress)
 }

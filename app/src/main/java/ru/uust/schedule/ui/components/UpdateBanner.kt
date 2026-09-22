@@ -108,7 +108,7 @@ private fun AvailableBanner(
                 )
                 Text(
                     release.notes.lineSequence().firstOrNull()?.takeIf { it.isNotBlank() }
-                        ?: "Обновление · ${release.sizeMb}",
+                        ?: downloadSizeHint(release),
                     style = MaterialTheme.typography.bodyMedium,
                     color = palette.textMuted,
                     maxLines = 2,
@@ -159,12 +159,20 @@ private fun DownloadingBanner(state: UpdateState.Downloading) {
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Загрузка ${state.release.versionName}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = palette.textPrimary,
-                )
-                Spacer(Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Загрузка ${state.release.versionName}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = palette.textPrimary,
+                    )
+                    if (state.isDelta) {
+                        Text(
+                            "только изменения, ${state.release.patch?.sizeMb ?: ""}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.accent,
+                        )
+                    }
+                }
                 Text(
                     "${(state.progress * 100).toInt()}%",
                     style = MaterialTheme.typography.labelSmall,
@@ -180,6 +188,19 @@ private fun DownloadingBanner(state: UpdateState.Downloading) {
                 drawStopIndicator = {},
             )
         }
+    }
+}
+
+/**
+ * Что покажет счётчик под названием версии в баннере «доступно обновление» —
+ * до нажатия «Установить» человек должен видеть, сколько реально скачается.
+ */
+private fun downloadSizeHint(release: ru.uust.schedule.data.remote.ReleaseInfo): String {
+    val patch = release.patch
+    return if (patch != null && patch.fromVersion == ru.uust.schedule.BuildConfig.VERSION_NAME) {
+        "Обновление · ${patch.sizeMb} вместо ${release.sizeMb}"
+    } else {
+        "Обновление · ${release.sizeMb}"
     }
 }
 

@@ -180,14 +180,14 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Тихая проверка при запуске: баннер появляется, только если версия новее. */
     fun checkForUpdates(silent: Boolean = true) {
-        viewModelScope.launch { UpdateManager.check(silent) }
+        viewModelScope.launch { UpdateManager.check(getApplication(), silent) }
     }
 
     fun installUpdate(release: ReleaseInfo) {
         viewModelScope.launch { UpdateManager.downloadAndInstall(getApplication(), release) }
     }
 
-    fun dismissUpdate() = UpdateManager.dismiss()
+    fun dismissUpdate() = UpdateManager.dismiss(getApplication())
 
     /** Возврат к выбору группы. Кеш расписания не трогаем — он ещё пригодится при возврате. */
     fun changeGroup() {

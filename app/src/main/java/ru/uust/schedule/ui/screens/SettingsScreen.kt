@@ -217,10 +217,13 @@ fun SettingsScreen(vm: ScheduleViewModel) {
                             is UpdateState.Checking -> "Проверяем…"
                             is UpdateState.UpToDate -> "Установлена последняя версия"
                             is UpdateState.Available -> "Доступна ${s.release.versionName}"
-                            is UpdateState.Downloading -> "Загрузка ${(s.progress * 100).toInt()}%"
+                            is UpdateState.Downloading -> {
+                                val kind = if (s.isDelta) "изменений" else "обновления"
+                                "Загрузка $kind: ${(s.progress * 100).toInt()}%"
+                            }
                             is UpdateState.ReadyToInstall -> "Подтвердите установку"
                             is UpdateState.Failed -> s.message
-                            else -> "Проверяется при каждом запуске"
+                            else -> "Проверяется раз в сутки"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (updateState is UpdateState.Failed) palette.danger

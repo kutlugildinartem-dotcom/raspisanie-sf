@@ -347,3 +347,75 @@ class WeekRangeTest {
         )
     }
 }
+
+/**
+ * Механизм дельта-обновлений целиком: bsdiff считает патч, bspatch применяет
+ * его и должен восстановить исходные байты один в один.
+ *
+ * Это единственная проверка, которая ловит баг в самом патчере до того, как
+ * он окажется на телефоне и попытается собрать APK из установленного плюс
+ * патча — здесь его дешевле поймать, чем там.
+ */
+class BinaryPatchTest {
+
+    private fun sha256(bytes: ByteArray): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    @Test
+    fun `патч восстанавливает исходные байты один в один`() {
+        val old = ByteArray(50_000) { (it % 251).toByte() }
+        val new = old.copyOf().also { bytes ->
+            // Меняем небольшой кусок в середине — имитация правки в исходниках,
+            // из-за которой сдвигается часть скомпилированного байткода.
+            for (i in 20_000 until 20_500) bytes[i] = ((bytes[i] + 7) % 128).toByte()
+        }
+
+        val patch = java.io.ByteArrayOutputStream()
+        io.sigpipe.jbsdiff.Diff.diff(old, new, patch)
+
+        val result = java.io.ByteArrayOutputStream()
+        io.sigpipe.jbsdiff.Patch.patch(old, patch.toByteArray(), result)
+
+        assertEquals(sha256(new), sha256(result.toByteArray()))
+        assertTrue(result.toByteArray().contentEquals(new))
+    }
+
+    @Test
+    fun `патч для непохожих файлов не ломается, просто получается большим`() {
+        val old = ByteArray(10_000) { it.toByte() }
+        val new = ByteArray(10_000) { (255 - it).toByte() }
+
+        val patch = java.io.ByteArrayOutputStream()
+        io.sigpipe.jbsdiff.Diff.diff(old, new, patch)
+
+        val result = java.io.ByteArrayOutputStream()
+        io.sigpipe.jbsdiff.Patch.patch(old, patch.toByteArray(), result)
+
+        assertEquals(sha256(new), sha256(result.toByteArray()))
+    }
+
+    @Test
+    fun `патч к чужой базе не проходит проверку контрольной суммы`() {
+        val old = ByteArray(5_000) { it.toByte() }
+        val new = old.copyOf().also { it[100] = 99 }
+        val wrongBase = ByteArray(5_000) { (it + 1).toByte() }
+
+        // Патч посчитан для old, а не для wrongBase — контрольная сумма базы
+        // не совпадёт, и клиент обязан откатиться на полную загрузку, а не
+        // пытаться накатить патч на неподходящие байты.
+        assertTrue(sha256(old) != sha256(wrongBase))
+
+        val patch = java.io.ByteArrayOutputStream()
+        io.sigpipe.jbsdiff.Diff.diff(old, new, patch)
+
+        val result = java.io.ByteArrayOutputStream()
+        io.sigpipe.jbsdiff.Patch.patch(wrongBase, patch.toByteArray(), result)
+
+        // bspatch применится без исключения, но результат будет мусором —
+        // именно поэтому в UpdateManager результат ещё раз проверяется по sha256
+        // ПЕРЕД тем, как попасть в сессию установки.
+        assertTrue(sha256(result.toByteArray()) != sha256(new))
+    }
+}
