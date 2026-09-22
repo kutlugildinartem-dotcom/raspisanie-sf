@@ -17,12 +17,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +50,7 @@ import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.data.repo.SubjectSummary
 import ru.uust.schedule.ui.ScheduleViewModel
 import ru.uust.schedule.ui.components.Card
+import ru.uust.schedule.ui.components.SwipeRevealRow
 import ru.uust.schedule.ui.components.quietClickable
 import ru.uust.schedule.ui.theme.LocalPalette
 import ru.uust.schedule.ui.theme.Palette
@@ -145,8 +148,14 @@ fun SubjectsScreen(vm: ScheduleViewModel) {
             summary = summary,
             existing = notes[summary.subject],
             onDismiss = { editing = null },
-            onSave = { text, hue ->
-                vm.saveNote(summary.subject, text, hue, custom = summary.custom)
+            onSave = { text, hue, teacher ->
+                vm.saveNote(
+                    subject = summary.subject,
+                    text = text,
+                    hue = hue,
+                    custom = summary.custom,
+                    teacherFull = teacher,
+                )
                 editing = null
             },
         )
@@ -170,7 +179,14 @@ fun SubjectsScreen(vm: ScheduleViewModel) {
             titleContentColor = palette2.textPrimary,
             textContentColor = palette2.textSecondary,
             title = { Text("Удалить «${summary.subject}»?") },
-            text = { Text("Предмет и заметка к нему исчезнут. Отменить будет нельзя.") },
+            text = {
+                Text(
+                    if (summary.custom) "Предмет и заметка к нему исчезнут. Отменить будет нельзя."
+                    // Сам предмет придёт обратно с сайта, поэтому обещать его удаление нечестно.
+                    else "Заметка, цвет и имя преподавателя сотрутся. Сам предмет вернётся " +
+                        "при следующей синхронизации с сайтом."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     vm.deleteSubject(summary.subject) { reloadToken++ }
@@ -198,76 +214,94 @@ private fun SubjectCard(
     val palette = LocalPalette.current
     val color = Palette.subjectColor(summary.subject, palette, note?.hue ?: -1)
 
-    Card(Modifier.fillMaxWidth(), onClick = onEdit) {
-        Row(Modifier.padding(start = 14.dp, end = 12.dp, top = 15.dp, bottom = 15.dp)) {
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(if (note?.note.isNullOrBlank()) 36.dp else 58.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(color)
-            )
-            Spacer(Modifier.width(12.dp))
-
-            Column(Modifier.weight(1f)) {
-                Text(
-                    summary.subject,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = palette.textPrimary,
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    when {
-                        summary.custom -> "Добавлен вручную"
-                        else -> buildString {
-                            append(summary.teachers.take(2).joinToString(", "))
-                            if (summary.types.isNotEmpty()) {
-                                if (isNotEmpty()) append(" · ")
-                                append(summary.types.joinToString("/"))
-                            }
-                        }.ifBlank { "${summary.lessonCount} занятий" }
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = palette.textMuted,
-                    maxLines = 2,
-                )
-
-                if (!note?.note.isNullOrBlank()) {
-                    Spacer(Modifier.height(9.dp))
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(color.copy(alpha = 0.10f))
-                            .padding(horizontal = 11.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            note!!.note,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = palette.textSecondary,
-                        )
-                    }
-                }
-            }
-
-            if (summary.custom) {
-                Spacer(Modifier.width(6.dp))
+    SwipeRevealRow(
+        actions = {
+            ActionCircle(Icons.Rounded.Edit, "Изменить", palette.accent, onEdit)
+            Spacer(Modifier.width(8.dp))
+            ActionCircle(Icons.Rounded.DeleteOutline, "Удалить", palette.danger, onDelete)
+            Spacer(Modifier.width(4.dp))
+        },
+    ) {
+        Card(Modifier.fillMaxWidth(), onClick = onEdit) {
+            Row(Modifier.padding(start = 18.dp, end = 18.dp, top = 20.dp, bottom = 20.dp)) {
                 Box(
                     Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .quietClickable(onDelete),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Rounded.DeleteOutline, "Удалить",
-                        tint = palette.textMuted, modifier = Modifier.size(19.dp),
+                        .width(4.dp)
+                        .height(if (note?.note.isNullOrBlank()) 46.dp else 74.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(color)
+                )
+                Spacer(Modifier.width(16.dp))
+
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        summary.subject,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = palette.textPrimary,
                     )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = subtitleOf(summary, note),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = palette.textMuted,
+                        maxLines = 2,
+                    )
+
+                    if (!note?.note.isNullOrBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(13.dp))
+                                .background(color.copy(alpha = 0.10f))
+                                .padding(horizontal = 13.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                note!!.note,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = palette.textSecondary,
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+/** Подпись под названием: полное имя преподавателя важнее инициалов с сайта. */
+private fun subtitleOf(summary: SubjectSummary, note: SubjectNoteEntity?): String {
+    note?.teacherFull?.takeIf { it.isNotBlank() }?.let { return it }
+    if (summary.custom) return "Добавлен вручную"
+    return buildString {
+        append(summary.teachers.take(2).joinToString(", "))
+        if (summary.types.isNotEmpty()) {
+            if (isNotEmpty()) append(" · ")
+            append(summary.types.joinToString("/"))
+        }
+    }.ifBlank { "${summary.lessonCount} занятий" }
+}
+
+@Composable
+private fun ActionCircle(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    tint: Color,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Box(
+        Modifier
+            .size(52.dp)
+            .clip(CircleShape)
+            .background(palette.surfaceHigh)
+            .quietClickable(onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, description, tint = tint, modifier = Modifier.size(22.dp))
+    }
+}
+
 
 @Composable
 private fun AddSubjectDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
@@ -322,11 +356,12 @@ private fun NoteDialog(
     summary: SubjectSummary,
     existing: SubjectNoteEntity?,
     onDismiss: () -> Unit,
-    onSave: (String, Int) -> Unit,
+    onSave: (String, Int, String) -> Unit,
 ) {
     val palette = LocalPalette.current
     var text by remember { mutableStateOf(existing?.note.orEmpty()) }
     var hue by remember { mutableStateOf(existing?.hue ?: -1) }
+    var teacher by remember { mutableStateOf(existing?.teacherFull.orEmpty()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -335,7 +370,7 @@ private fun NoteDialog(
         textContentColor = palette.textSecondary,
         title = { Text(summary.subject, style = MaterialTheme.typography.titleMedium) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (summary.rooms.isNotEmpty()) {
                     Text(
                         "Аудитории: " + summary.rooms.take(3).joinToString(", "),
@@ -345,11 +380,31 @@ private fun NoteDialog(
                     Spacer(Modifier.height(10.dp))
                 }
 
+                // Сайт отдаёт только «Иванов И.И.» — полное имя вводится вручную.
+                OutlinedTextField(
+                    value = teacher,
+                    onValueChange = { teacher = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Преподаватель", color = palette.textMuted) },
+                    placeholder = {
+                        Text(
+                            summary.teachers.firstOrNull() ?: "Иванов Иван Иванович",
+                            color = palette.textMuted,
+                        )
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = textFieldColors(),
+                )
+
+                Spacer(Modifier.height(12.dp))
+
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Что принести, дедлайны…", color = palette.textMuted) },
+                    label = { Text("Короткая заметка", color = palette.textMuted) },
+                    placeholder = { Text("Показывается под парой", color = palette.textMuted) },
                     minLines = 3,
                     shape = RoundedCornerShape(14.dp),
                     colors = textFieldColors(),
@@ -383,7 +438,7 @@ private fun NoteDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(text.trim(), hue) }) {
+            TextButton(onClick = { onSave(text.trim(), hue, teacher.trim()) }) {
                 Text("Сохранить", color = palette.accent, fontWeight = FontWeight.Bold)
             }
         },

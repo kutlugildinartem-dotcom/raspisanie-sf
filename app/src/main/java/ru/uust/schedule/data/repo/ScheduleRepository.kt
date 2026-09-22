@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import ru.uust.schedule.data.local.AppDatabase
 import ru.uust.schedule.data.local.DayEntity
 import ru.uust.schedule.data.local.GroupEntity
+import ru.uust.schedule.data.local.LessonRecordEntity
 import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.data.prefs.SettingsStore
 import ru.uust.schedule.data.remote.ScheduleApi
@@ -87,6 +88,22 @@ class ScheduleRepository(
         (fromSchedule + manual).sortedBy { it.subject.lowercase() }
     }
 
+    /**
+     * Сколько пар в каждый день диапазона — для тепловой карты календаря.
+     * Дни, которых нет в кеше, в карту не попадают: «нет данных» и «нет пар»
+     * это разные вещи, и красить их одинаково нельзя.
+     */
+    suspend fun lessonCounts(groupId: Int, from: LocalDate, to: LocalDate): Map<LocalDate, Int> =
+        withContext(Dispatchers.IO) {
+            db.scheduleDao().daysBetween(groupId, from.toString(), to.toString())
+                .mapNotNull { entity ->
+                    val date = runCatching { LocalDate.parse(entity.isoDate) }.getOrNull()
+                        ?: return@mapNotNull null
+                    date to entity.toDomain().realLessons.size
+                }
+                .toMap()
+        }
+
     /** Заводит предмет вручную. Возвращает false, если такой уже есть. */
     suspend fun addCustomSubject(groupId: Int, subject: String): Boolean =
         withContext(Dispatchers.IO) {
@@ -133,6 +150,33 @@ class ScheduleRepository(
             saved
         }
 
+    /**
+     * Догружает недели, которых не хватает для показа месяца [anyDayOfMonth].
+     * Уже закешированные недели не перезапрашиваются: календарь открывают часто,
+     * а расписание на прошлый месяц не меняется.
+     */
+    suspend fun ensureMonthLoaded(groupId: Int, anyDayOfMonth: LocalDate) =
+        withContext(Dispatchers.IO) {
+            if (groupId == 0) return@withContext
+            val first = anyDayOfMonth.withDayOfMonth(1)
+            val last = first.plusMonths(1).minusDays(1)
+            val thisMonday = mondayOf(LocalDate.now())
+
+            var monday = mondayOf(first)
+            val missing = mutableListOf<Int>()
+            while (!monday.isAfter(last)) {
+                val cached = db.scheduleDao()
+                    .daysBetween(groupId, monday.toString(), monday.plusDays(5).toString())
+                if (cached.isEmpty()) {
+                    missing += ChronoUnit.WEEKS.between(thisMonday, monday).toInt()
+                }
+                monday = monday.plusWeeks(1)
+            }
+            if (missing.isNotEmpty()) {
+                runCatching { syncWeeks(groupId, missing) }
+            }
+        }
+
     /** Нужно ли обновлять: кеш старше [maxAgeMinutes] или пуст. */
     suspend fun isStale(groupId: Int, maxAgeMinutes: Long = 180): Boolean =
         withContext(Dispatchers.IO) {
@@ -170,6 +214,45 @@ class ScheduleRepository(
 
     suspend fun groupName(groupId: Int): String? = withContext(Dispatchers.IO) {
         db.groupDao().byId(groupId)?.name
+    }
+
+    /** Учебные дни диапазона — для ленты, сетки и таймлайна. */
+    suspend fun daysBetween(groupId: Int, from: LocalDate, to: LocalDate): List<DaySchedule> =
+        withContext(Dispatchers.IO) {
+            if (groupId == 0) return@withContext emptyList()
+            db.scheduleDao().daysBetween(groupId, from.toString(), to.toString())
+                .map { it.toDomain() }
+        }
+
+    // --- домашка и оценки ---
+
+    suspend fun recordsFor(groupId: Int, date: LocalDate): Map<String, LessonRecordEntity> =
+        withContext(Dispatchers.IO) {
+            db.recordDao().forDate(groupId, date.toString()).associateBy { it.subject }
+        }
+
+    suspend fun recordsBetween(
+        groupId: Int,
+        from: LocalDate,
+        to: LocalDate,
+    ): Map<Pair<String, String>, LessonRecordEntity> = withContext(Dispatchers.IO) {
+        db.recordDao().between(groupId, from.toString(), to.toString())
+            .associateBy { it.isoDate to it.subject }
+    }
+
+    fun pendingHomeworkFlow(groupId: Int): Flow<List<LessonRecordEntity>> =
+        db.recordDao().pendingFlow(groupId, LocalDate.now().toString())
+
+    /**
+     * Сохраняет домашку и оценку. Пустая запись удаляется, а не хранится:
+     * иначе таблица копила бы строки от каждого открытого и закрытого окна.
+     */
+    suspend fun saveRecord(record: LessonRecordEntity) = withContext(Dispatchers.IO) {
+        if (record.isEmpty) {
+            db.recordDao().delete(record.groupId, record.isoDate, record.subject)
+        } else {
+            db.recordDao().upsert(record.copy(updatedAt = System.currentTimeMillis()))
+        }
     }
 
     // --- заметки ---

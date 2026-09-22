@@ -1,6 +1,9 @@
 package ru.uust.schedule.ui.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -9,6 +12,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,14 +24,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,12 +51,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ru.uust.schedule.data.prefs.ScheduleLayout
 import ru.uust.schedule.data.update.UpdateManager
 import ru.uust.schedule.data.update.UpdateState
 import ru.uust.schedule.domain.DayLogic
 import ru.uust.schedule.ui.ScheduleViewModel
+import ru.uust.schedule.ui.components.CalendarSheet
 import ru.uust.schedule.ui.components.EmptyDayCard
-import ru.uust.schedule.ui.components.LessonCard
+import ru.uust.schedule.ui.components.LessonSheet
 import ru.uust.schedule.ui.components.UpdateBanner
 import ru.uust.schedule.ui.components.quietClickable
 import ru.uust.schedule.ui.theme.LocalPalette
@@ -65,6 +82,7 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     val date by vm.selectedDate.collectAsStateWithLifecycle()
     val updateState by vm.updateState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var sheetTarget by remember { mutableStateOf<Pair<LocalDate, ru.uust.schedule.domain.Lesson>?>(null) }
 
     val today = LocalDate.now()
     val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
@@ -83,9 +101,42 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                 )
             }
     ) {
-        Header(date = date, today = today, groupName = settings.groupName, syncing = ui.loading)
+        Header(
+            date = date,
+            today = today,
+            groupName = settings.groupName,
+            syncing = ui.loading,
+            calendarOpen = ui.calendarOpen,
+            onToggleCalendar = vm::toggleCalendar,
+        )
 
-        WeekStrip(date = date, today = today, onPick = vm::selectDate)
+        // Календарь выезжает свайпом вверх по полосе дат и по нажатию на неё же.
+        AnimatedVisibility(
+            visible = ui.calendarOpen,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            CalendarSheet(
+                month = ui.calendarMonth,
+                selected = date,
+                today = today,
+                counts = ui.lessonCounts,
+                onPick = {
+                    vm.selectDate(it)
+                    vm.toggleCalendar()
+                },
+                onMonthChange = vm::showMonth,
+            )
+        }
+
+        if (!ui.calendarOpen) {
+            DateStrip(
+                date = date,
+                today = today,
+                onPick = vm::selectDate,
+                onOpenCalendar = vm::toggleCalendar,
+            )
+        }
 
         UpdateBanner(
             state = updateState,
@@ -122,6 +173,20 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
 
         Spacer(Modifier.height(12.dp))
 
+        val layoutData = LayoutData(
+            notes = ui.notes,
+            records = ui.rangeRecords,
+            today = today,
+            nowMinutes = nowMinutes,
+            onLessonClick = { d, lesson -> sheetTarget = d to lesson },
+        )
+
+        // Лента показывает все дни сразу, поэтому анимация смены даты ей не нужна.
+        if (settings.layout == ScheduleLayout.Feed) {
+            FeedLayout(days = ui.rangeDays, data = layoutData)
+            return@Column
+        }
+
         AnimatedContent(
             targetState = date,
             transitionSpec = {
@@ -132,38 +197,31 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
             },
             label = "day",
         ) { shownDate ->
-            val lessons = ui.day
-                ?.takeIf { it.isoDate == shownDate.toString() }
-                ?.realLessons
-                .orEmpty()
-
-            if (lessons.isEmpty()) {
-                Column(Modifier.padding(horizontal = 20.dp)) {
-                    EmptyDayCard(if (ui.day == null && ui.loading) "Загружаем…" else "Пар нет")
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(lessons, key = { it.number }) { lesson ->
-                        val note = ui.notes[lesson.subject]
-                        LessonCard(
-                            lesson = lesson,
-                            isNow = shownDate == today && lesson.startMin >= 0 &&
-                                nowMinutes >= lesson.startMin && nowMinutes < lesson.endMin,
-                            isPast = shownDate < today ||
-                                (shownDate == today && lesson.endMin in 0..nowMinutes),
-                            note = note?.note?.takeIf { it.isNotBlank() },
-                            noteHue = note?.hue ?: -1,
-                        )
-                    }
-                }
+            when (settings.layout) {
+                ScheduleLayout.Grid ->
+                    GridLayout(shownDate, ui.day, layoutData, ui.loading)
+                ScheduleLayout.Timeline ->
+                    TimelineLayout(shownDate, ui.day, layoutData, ui.loading)
+                else ->
+                    DayLayout(shownDate, ui.day, layoutData, ui.loading)
             }
         }
     }
-}
 
+    sheetTarget?.let { (sheetDate, lesson) ->
+        LessonSheet(
+            lesson = lesson,
+            date = sheetDate,
+            today = today,
+            record = ui.rangeRecords[sheetDate.toString() to lesson.subject],
+            onDismiss = { sheetTarget = null },
+            onSave = { homework, done, grade ->
+                vm.saveRecord(sheetDate, lesson.subject, homework, done, grade)
+                sheetTarget = null
+            },
+        )
+    }
+}
 /**
  * Заголовок: крупно — какой это день относительно сегодня, мелко — дата и группа.
  * Индикатор синхронизации появляется, только когда она реально идёт.
@@ -174,6 +232,8 @@ private fun Header(
     today: LocalDate,
     groupName: String,
     syncing: Boolean,
+    calendarOpen: Boolean,
+    onToggleCalendar: () -> Unit,
 ) {
     val palette = LocalPalette.current
 
@@ -209,28 +269,86 @@ private fun Header(
                 strokeWidth = 2.dp,
                 modifier = Modifier.size(18.dp),
             )
+            Spacer(Modifier.width(10.dp))
+        }
+
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(if (calendarOpen) palette.tint(0.16f) else palette.surface)
+                .quietClickable(onToggleCalendar),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                if (calendarOpen) Icons.Rounded.Close else Icons.Rounded.CalendarMonth,
+                if (calendarOpen) "Закрыть календарь" else "Календарь",
+                tint = palette.accent,
+                modifier = Modifier.size(19.dp),
+            )
         }
     }
 }
 
 /** Полоса недели — она же навигация: заменяет стрелки и показывает, где ты находишься. */
+/**
+ * Лента дат: прокручивается влево-вправо на несколько недель вперёд и назад,
+ * свайп вверх по ней открывает календарь месяца.
+ *
+ * Пришла на смену стрелкам: лента сразу показывает, где ты находишься,
+ * и не требует считать нажатия.
+ */
 @Composable
-private fun WeekStrip(date: LocalDate, today: LocalDate, onPick: (LocalDate) -> Unit) {
+private fun DateStrip(
+    date: LocalDate,
+    today: LocalDate,
+    onPick: (LocalDate) -> Unit,
+    onOpenCalendar: () -> Unit,
+) {
     val palette = LocalPalette.current
-    val monday = date.minusDays((date.dayOfWeek.value - 1).toLong())
+    val listState = rememberLazyListState()
 
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    // Лента строится вокруг сегодняшнего дня, воскресенья пропускаются.
+    val days = remember(today) {
+        buildList {
+            for (i in -WEEKS_BACK * 6..WEEKS_FORWARD * 6) {
+                add(DayLogic.shift(today, i))
+            }
+        }.distinct()
+    }
+    val selectedIndex = days.indexOf(date)
+
+    LaunchedEffect(date) {
+        if (selectedIndex >= 0) {
+            // Держим выбранный день ближе к левому краю, чтобы было видно, что дальше.
+            listState.animateScrollToItem((selectedIndex - 2).coerceAtLeast(0))
+        }
+    }
+
+    LazyRow(
+        state = listState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(Unit) {
+                var dragUp = 0f
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (dragUp < -40f) onOpenCalendar()
+                        dragUp = 0f
+                    },
+                    onVerticalDrag = { _, amount -> dragUp += amount },
+                )
+            },
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        (0..5).forEach { i ->
-            val d = monday.plusDays(i.toLong())
+        items(days, key = { it.toEpochDay() }) { d ->
             val selected = d == date
             val isToday = d == today
 
             Box(
                 Modifier
-                    .weight(1f)
+                    .width(50.dp)
                     .clip(RoundedCornerShape(15.dp))
                     .background(if (selected) palette.accent else palette.surface)
                     .quietClickable { onPick(d) }
@@ -260,3 +378,6 @@ private fun WeekStrip(date: LocalDate, today: LocalDate, onPick: (LocalDate) -> 
         }
     }
 }
+
+private const val WEEKS_BACK = 4
+private const val WEEKS_FORWARD = 8

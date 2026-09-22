@@ -1,6 +1,7 @@
 package ru.uust.schedule.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,8 +12,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ru.uust.schedule.data.local.LessonRecordEntity
 import ru.uust.schedule.domain.Lesson
 import ru.uust.schedule.ui.theme.LocalPalette
 import ru.uust.schedule.ui.theme.Palette
@@ -30,9 +36,9 @@ import ru.uust.schedule.ui.theme.Palette
 /**
  * Карточка пары.
  *
- * Слева — время отдельной колонкой: взгляд идёт по нему сверху вниз, как по
- * таймлайну, и не прыгает внутрь карточки. Прошедшая пара приглушается, но
- * не прячется.
+ * Сверху выделено то, ради чего в расписание и смотрят на ходу: время, тип
+ * занятия и кабинет. Преподаватель уходит вниз мелким — его знают наизусть,
+ * а номер аудитории каждый раз ищут заново.
  */
 @Composable
 fun LessonCard(
@@ -42,122 +48,219 @@ fun LessonCard(
     isPast: Boolean = false,
     note: String? = null,
     noteHue: Int = -1,
+    /** Полное имя преподавателя, если пользователь его ввёл: сайт даёт только инициалы. */
+    teacherFull: String? = null,
+    record: LessonRecordEntity? = null,
+    compact: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     val color = Palette.subjectColor(lesson.subject, palette, noteHue)
-    val fade = if (isPast && !isNow) 0.4f else 1f
+    val fade = if (isPast && !isNow) 0.45f else 1f
 
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+    Card(modifier.fillMaxWidth(), elevated = isNow, onClick = onClick) {
+        Row(Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 14.dp)) {
 
-        Column(
-            Modifier.width(52.dp).padding(top = 16.dp),
-            horizontalAlignment = Alignment.Start,
-        ) {
-            Text(
-                text = lesson.timeRange.take(5),
-                style = MaterialTheme.typography.labelMedium,
-                color = (if (isNow) palette.accent else palette.textSecondary).copy(alpha = fade),
-                fontWeight = if (isNow) FontWeight.Bold else FontWeight.Medium,
+            Box(
+                Modifier
+                    .width(4.dp)
+                    .height(if (compact) 40.dp else 54.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(color.copy(alpha = fade))
             )
-            Text(
-                text = lesson.timeRange.takeLast(5),
-                style = MaterialTheme.typography.labelSmall,
-                color = palette.textMuted.copy(alpha = fade),
-            )
-        }
+            Spacer(Modifier.width(12.dp))
 
-        Card(
-            modifier = Modifier.weight(1f),
-            elevated = isNow,
-            onClick = onClick,
-        ) {
-            Row(Modifier.padding(start = 14.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)) {
+            Column(Modifier.weight(1f)) {
 
-                Box(
-                    Modifier
-                        .width(3.dp)
-                        .height(if (note.isNullOrBlank()) 38.dp else 60.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(color.copy(alpha = fade))
-                )
-                Spacer(Modifier.width(12.dp))
-
-                Column(Modifier.weight(1f)) {
+                // Ключевая строка: когда, какое занятие и где.
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = lesson.subject,
+                        text = lesson.timeRange.take(5),
                         style = MaterialTheme.typography.titleMedium,
-                        color = palette.textPrimary.copy(alpha = fade),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        textDecoration = if (isPast && !isNow) TextDecoration.LineThrough else null,
+                        color = (if (isNow) palette.accent else palette.textPrimary)
+                            .copy(alpha = fade),
+                        fontWeight = FontWeight.Bold,
                     )
-                    Spacer(Modifier.height(4.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (lesson.type.isNotBlank()) {
-                            TypeTag(lesson.type, color.copy(alpha = fade))
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(
-                            text = listOfNotNull(
-                                lesson.room.ifBlank { null },
-                                lesson.teacher.ifBlank { null },
-                            ).joinToString(" · "),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = palette.textMuted.copy(alpha = fade),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                    if (lesson.type.isNotBlank()) {
+                        Spacer(Modifier.width(8.dp))
+                        Tag(
+                            text = lessonTypeLabel(lesson.type),
+                            color = color.copy(alpha = fade),
+                            filled = true,
+                        )
+                    }
+                    if (lesson.room.isNotBlank()) {
+                        Spacer(Modifier.width(6.dp))
+                        Tag(
+                            text = lesson.room,
+                            color = palette.textSecondary.copy(alpha = fade),
+                            filled = false,
                         )
                     }
 
-                    if (!note.isNullOrBlank()) {
-                        Spacer(Modifier.height(10.dp))
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(11.dp))
-                                .background(color.copy(alpha = 0.10f))
-                                .padding(horizontal = 11.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                note,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = palette.textSecondary,
-                                maxLines = 4,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                    Spacer(Modifier.weight(1f))
+
+                    record?.grade?.takeIf { it > 0 }?.let { GradeBadge(it, palette) }
+                    if (record?.hasHomework == true) {
+                        Spacer(Modifier.width(6.dp))
+                        HomeworkDot(done = record.homeworkDone, accent = palette.accent)
                     }
                 }
 
-                if (isNow) {
-                    Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
+
+                Text(
+                    text = lesson.subject,
+                    style = if (compact) MaterialTheme.typography.bodyLarge
+                    else MaterialTheme.typography.titleMedium,
+                    color = palette.textPrimary.copy(alpha = fade),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textDecoration = if (isPast && !isNow) TextDecoration.LineThrough else null,
+                )
+
+                val teacher = teacherFull?.ifBlank { null } ?: lesson.teacher.ifBlank { null }
+                if (teacher != null && !compact) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = teacher,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.textMuted.copy(alpha = fade),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                if (!record?.homework.isNullOrBlank() && !compact) {
+                    Spacer(Modifier.height(10.dp))
+                    HomeworkStrip(record!!, palette.accent)
+                }
+
+                if (!note.isNullOrBlank() && !compact) {
+                    Spacer(Modifier.height(8.dp))
                     Box(
                         Modifier
-                            .padding(top = 4.dp)
-                            .size(8.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(palette.accent)
-                    )
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(color.copy(alpha = 0.10f))
+                            .padding(horizontal = 11.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            note,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.textSecondary,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+/** Сайт сокращает тип до «Лек»/«Пр»/«Лаб» — разворачиваем, пока это влезает. */
+private fun lessonTypeLabel(raw: String): String = when (raw.trim().lowercase()) {
+    "лек" -> "Лекция"
+    "пр" -> "Практика"
+    "лаб" -> "Лаб"
+    else -> raw.trim()
+}
+
 @Composable
-private fun TypeTag(type: String, color: Color) {
+private fun Tag(text: String, color: Color, filled: Boolean) {
     Box(
         Modifier
-            .clip(RoundedCornerShape(7.dp))
-            .background(color.copy(alpha = 0.16f))
-            .padding(horizontal = 7.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .then(
+                if (filled) Modifier.background(color.copy(alpha = 0.18f))
+                else Modifier.border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            )
+            .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
         Text(
-            type,
+            text,
             style = MaterialTheme.typography.labelSmall,
             color = color,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * Индикатор домашки: точка, а не значок с подписью.
+ * Задача — попасться на глаза при просмотре дня, а не требовать внимания.
+ */
+@Composable
+private fun HomeworkDot(done: Boolean, accent: Color) {
+    val palette = LocalPalette.current
+    if (done) {
+        Box(
+            Modifier
+                .size(16.dp)
+                .clip(CircleShape)
+                .background(palette.textMuted.copy(alpha = 0.25f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.Check, "Домашка сделана",
+                tint = palette.textMuted, modifier = Modifier.size(11.dp),
+            )
+        }
+    } else {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(accent)
+        )
+    }
+}
+
+@Composable
+private fun GradeBadge(grade: Int, palette: Palette) {
+    Box(
+        Modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .background(gradeColor(grade, palette).copy(alpha = 0.18f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            grade.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = gradeColor(grade, palette),
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+/** Оценка не должна кричать: «двойка» лишь заметнее, но не тревожно-красная. */
+private fun gradeColor(grade: Int, palette: Palette): Color = when {
+    grade >= 4 -> palette.accent
+    grade == 3 -> palette.textSecondary
+    else -> palette.danger
+}
+
+@Composable
+private fun HomeworkStrip(record: LessonRecordEntity, accent: Color) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(11.dp))
+            .background(accent.copy(alpha = if (record.homeworkDone) 0.06f else 0.12f))
+            .padding(horizontal = 11.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            record.homework,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (record.homeworkDone) palette.textMuted else palette.textSecondary,
+            textDecoration = if (record.homeworkDone) TextDecoration.LineThrough else null,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

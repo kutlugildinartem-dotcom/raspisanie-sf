@@ -57,4 +57,21 @@ data class AppSettings(
     val notificationsEnabled: Boolean = false,
     val notifyMinutesBefore: Int = 15,
     val onboarded: Boolean = false,
+    val layout: ScheduleLayout = ScheduleLayout.Day,
 )
+
+/** Как выглядит главный экран. */
+@kotlinx.serialization.Serializable
+enum class ScheduleLayout(val title: String, val description: String) {
+    /** Одна страница на день: крупно и ничего лишнего. */
+    Day("День", "Один день на экран, листается свайпом"),
+
+    /** Непрерывная лента с заголовками дней — видно, что будет дальше, без листания. */
+    Feed("Лента", "Все дни подряд с разделителями"),
+
+    /** Две колонки: пары видны целиком одним взглядом. */
+    Grid("Две колонки", "Пары в два ряда, дни листаются"),
+
+    /** Рельса времени с окнами между парами. */
+    Timeline("Таймлайн", "Шкала дня с окнами между парами"),
+}

@@ -70,3 +70,29 @@ interface NoteDao {
     @Query("DELETE FROM subject_notes WHERE groupId = :groupId AND subject = :subject")
     suspend fun delete(groupId: Int, subject: String)
 }
+
+@Dao
+interface LessonRecordDao {
+
+    @Upsert
+    suspend fun upsert(record: LessonRecordEntity)
+
+    @Query("SELECT * FROM lesson_records WHERE groupId = :groupId AND isoDate = :isoDate")
+    suspend fun forDate(groupId: Int, isoDate: String): List<LessonRecordEntity>
+
+    @Query("SELECT * FROM lesson_records WHERE groupId = :groupId AND isoDate BETWEEN :from AND :to")
+    suspend fun between(groupId: Int, from: String, to: String): List<LessonRecordEntity>
+
+    @Query("SELECT * FROM lesson_records WHERE groupId = :groupId AND isoDate BETWEEN :from AND :to")
+    fun betweenFlow(groupId: Int, from: String, to: String): Flow<List<LessonRecordEntity>>
+
+    /** Незакрытая домашка на сегодня и вперёд — для вкладки заданий. */
+    @Query(
+        "SELECT * FROM lesson_records WHERE groupId = :groupId AND homework != '' " +
+            "AND homeworkDone = 0 AND isoDate >= :from ORDER BY isoDate LIMIT 100"
+    )
+    fun pendingFlow(groupId: Int, from: String): Flow<List<LessonRecordEntity>>
+
+    @Query("DELETE FROM lesson_records WHERE groupId = :groupId AND isoDate = :isoDate AND subject = :subject")
+    suspend fun delete(groupId: Int, isoDate: String, subject: String)
+}

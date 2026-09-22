@@ -1,5 +1,7 @@
 package ru.uust.schedule.widget
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import androidx.datastore.preferences.core.MutablePreferences
@@ -81,9 +83,19 @@ object WidgetUpdater {
     suspend fun updateAllNow(context: Context) {
         // Фоны закешированы по теме; после смены цвета кеш обязан протухнуть.
         WidgetBackground.clear()
+
+        // Виджет дня живёт на RemoteViews ради свайпа, поэтому обновляется
+        // не через Glance, а уведомлением коллекции.
+        runCatching {
+            val widgets = AppWidgetManager.getInstance(context)
+            val ids = widgets.getAppWidgetIds(
+                ComponentName(context, DayWidgetReceiver::class.java)
+            )
+            ids.forEach { id -> DayWidgetReceiver.render(context, widgets, id) }
+        }
+
         val manager = GlanceAppWidgetManager(context)
         runCatching {
-            manager.getGlanceIds(DayWidget::class.java).forEach { DayWidget().update(context, it) }
             manager.getGlanceIds(NextLessonWidget::class.java).forEach { NextLessonWidget().update(context, it) }
             manager.getGlanceIds(WeekWidget::class.java).forEach { WeekWidget().update(context, it) }
             manager.getGlanceIds(NoteWidget::class.java).forEach { NoteWidget().update(context, it) }

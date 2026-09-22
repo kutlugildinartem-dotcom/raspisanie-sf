@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.uust.schedule.BuildConfig
 import ru.uust.schedule.data.prefs.AppTheme
+import ru.uust.schedule.data.prefs.ScheduleLayout
 import ru.uust.schedule.data.update.UpdateManager
 import ru.uust.schedule.data.update.UpdateState
 import ru.uust.schedule.ui.ScheduleViewModel
@@ -71,6 +72,17 @@ fun SettingsScreen(vm: ScheduleViewModel) {
             style = MaterialTheme.typography.displayMedium,
             color = palette.textPrimary,
         )
+
+        Section("Главный экран") {
+            ScheduleLayout.entries.forEachIndexed { index, layout ->
+                if (index > 0) Spacer(Modifier.height(8.dp))
+                LayoutOption(
+                    layout = layout,
+                    selected = settings.layout == layout,
+                    onClick = { vm.updateLayout(layout) },
+                )
+            }
+        }
 
         Section("Оформление") {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -398,4 +410,101 @@ private fun ActionButton(text: String, onClick: () -> Unit) {
             fontWeight = FontWeight.Bold,
         )
     }
+}
+
+/** Строка выбора режима: название, пояснение и мини-схема раскладки. */
+@Composable
+private fun LayoutOption(
+    layout: ScheduleLayout,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(15.dp))
+            .background(if (selected) palette.tint(0.14f) else palette.surfaceHigh)
+            .quietClickable(onClick)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LayoutPreview(layout, selected)
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                layout.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (selected) palette.accent else palette.textPrimary,
+            )
+            Text(
+                layout.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textMuted,
+            )
+        }
+    }
+}
+
+/** Схема из полосок: показать раскладку нагляднее, чем описать словами. */
+@Composable
+private fun LayoutPreview(layout: ScheduleLayout, selected: Boolean) {
+    val palette = LocalPalette.current
+    val bar = if (selected) palette.accent else palette.textMuted
+    val faint = bar.copy(alpha = 0.35f)
+
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(palette.background)
+            .padding(6.dp),
+    ) {
+        when (layout) {
+            ScheduleLayout.Day -> Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                repeat(3) { Bar(bar, 1f) }
+            }
+
+            ScheduleLayout.Feed -> Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Bar(bar, 0.45f)
+                Bar(faint, 1f)
+                Bar(bar, 0.45f)
+                Bar(faint, 1f)
+            }
+
+            ScheduleLayout.Grid -> Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                repeat(2) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Box(Modifier.weight(1f)) { Bar(bar, 1f, tall = true) }
+                        Box(Modifier.weight(1f)) { Bar(faint, 1f, tall = true) }
+                    }
+                }
+            }
+
+            ScheduleLayout.Timeline -> Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    Modifier
+                        .width(2.dp)
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(faint)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Bar(bar, 1f)
+                    Bar(bar, 0.7f)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Bar(color: Color, widthFraction: Float, tall: Boolean = false) {
+    Box(
+        Modifier
+            .fillMaxWidth(widthFraction)
+            .height(if (tall) 13.dp else 6.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(color)
+    )
 }

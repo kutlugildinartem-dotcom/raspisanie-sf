@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Виджет «День». StackView — единственная коллекция RemoteViews, которая
+  сама обрабатывает свайп пальцем: лаунчер отдаёт ей вертикальный жест.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <StackView
+        android:id="@+id/day_stack"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:loopViews="true"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:gravity="center" />
+
+    <TextView
+        android:id="@+id/day_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:padding="16dp"
+        android:textSize="13sp"
+        android:text="Откройте приложение и выберите группу"
+        android:visibility="gone" />
+</FrameLayout>

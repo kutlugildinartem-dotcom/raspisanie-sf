@@ -10,6 +10,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import ru.uust.schedule.data.local.LessonRecordEntity
 import ru.uust.schedule.data.remote.ScheduleApi
 import ru.uust.schedule.data.remote.VersionCompare
 import ru.uust.schedule.domain.DayLogic
@@ -244,5 +245,53 @@ class DayTitleTest {
     fun `полное имя дня в нижнем регистре для подзаголовка`() {
         assertEquals("понедельник", DayLogic.fullDay(monday))
         assertEquals("четверг", DayLogic.fullDay(monday.plusDays(3)))
+    }
+}
+
+/**
+ * Пустая запись домашки не должна храниться: репозиторий удаляет её,
+ * опираясь именно на этот признак.
+ */
+class LessonRecordTest {
+
+    private fun record(
+        homework: String = "",
+        done: Boolean = false,
+        grade: Int = 0,
+    ) = LessonRecordEntity(
+        groupId = 13,
+        isoDate = "2026-09-21",
+        subject = "Базы данных",
+        homework = homework,
+        homeworkDone = done,
+        grade = grade,
+    )
+
+    @Test
+    fun `запись без домашки и оценки считается пустой`() {
+        assertTrue(record().isEmpty)
+    }
+
+    @Test
+    fun `домашка делает запись непустой`() {
+        assertFalse(record(homework = "Глава 3").isEmpty)
+        assertTrue(record(homework = "Глава 3").hasHomework)
+    }
+
+    @Test
+    fun `оценка без домашки тоже сохраняется`() {
+        assertFalse(record(grade = 4).isEmpty)
+        assertFalse(record(grade = 4).hasHomework)
+    }
+
+    @Test
+    fun `отметка о выполнении удерживает запись`() {
+        // Иначе снятие текста домашки стирало бы и факт, что её сделали.
+        assertFalse(record(done = true).isEmpty)
+    }
+
+    @Test
+    fun `пробелы не считаются домашкой`() {
+        assertFalse(record(homework = "   ").hasHomework)
     }
 }

@@ -8,14 +8,20 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DayEntity::class, GroupEntity::class, SubjectNoteEntity::class],
-    version = 2,
+    entities = [
+        DayEntity::class,
+        GroupEntity::class,
+        SubjectNoteEntity::class,
+        LessonRecordEntity::class,
+    ],
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun scheduleDao(): ScheduleDao
     abstract fun groupDao(): GroupDao
     abstract fun noteDao(): NoteDao
+    abstract fun recordDao(): LessonRecordDao
 
     companion object {
         /**
@@ -32,6 +38,38 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Полное имя преподавателя: на сайте оно всегда сокращено до инициалов. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE subject_notes ADD COLUMN teacherFull TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
+        /**
+         * Домашние задания и оценки.
+         *
+         * SQL повторяет схему, которую генерирует Room, дословно — включая
+         * отсутствие DEFAULT. Room сверяет структуру таблицы при открытии базы
+         * и падает на любом расхождении, даже безобидном.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `lesson_records` (" +
+                        "`groupId` INTEGER NOT NULL, " +
+                        "`isoDate` TEXT NOT NULL, " +
+                        "`subject` TEXT NOT NULL, " +
+                        "`homework` TEXT NOT NULL, " +
+                        "`homeworkDone` INTEGER NOT NULL, " +
+                        "`grade` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`groupId`, `isoDate`, `subject`))"
+                )
+            }
+        }
+
         @Volatile private var instance: AppDatabase? = null
 
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
@@ -39,7 +77,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "uust_schedule.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
     }
 }

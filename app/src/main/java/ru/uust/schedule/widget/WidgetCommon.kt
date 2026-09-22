@@ -17,8 +17,17 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.layout.Box
 import androidx.glance.layout.ContentScale
 import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.width
+import androidx.glance.layout.Spacer
+import androidx.glance.layout.padding
+import androidx.glance.action.clickable
+import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.text.FontWeight
+import androidx.glance.text.Text
+import androidx.glance.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.glance.unit.ColorProvider
 import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.data.prefs.AppSettings
@@ -165,3 +174,74 @@ fun ColorPill(
  * из-за чего видно всего одну пару.
  */
 fun isCompactHeight(height: Dp): Boolean = height.value < 190f
+
+/** Строка пары в Glance-виджетах. [compact] убирает вторую строку с подробностями. */
+@Composable
+fun LessonRow(lesson: ru.uust.schedule.domain.Lesson, s: WidgetSnapshot, compact: Boolean) {
+    val p = s.palette
+    val note = s.notes[lesson.subject]
+    val argb = p.subjectArgb(lesson.subject, note?.hue ?: -1)
+    val isNow = s.date == s.today && lesson.startMin >= 0 &&
+        s.nowMinutes >= lesson.startMin && s.nowMinutes < lesson.endMin
+    val isPast = s.date < s.today || (s.date == s.today && lesson.endMin in 0..s.nowMinutes)
+
+    androidx.glance.layout.Row(
+        GlanceModifier
+            .fillMaxWidth()
+            .padding(bottom = if (compact) 5.dp else 7.dp)
+            .clickable(actionRunCallback<OpenAppAction>()),
+        verticalAlignment = androidx.glance.layout.Alignment.CenterVertically,
+    ) {
+        Text(
+            text = lesson.timeRange.take(5),
+            style = TextStyle(
+                color = (if (isNow) p.accent else p.textMuted).glance(),
+                fontSize = 11.sp,
+                fontWeight = if (isNow) FontWeight.Bold else FontWeight.Normal,
+            ),
+            maxLines = 1,
+        )
+        Spacer(GlanceModifier.width(8.dp))
+        ColorPill(argb, widthDp = 3, heightDp = if (compact) 16 else 26, cornerDp = 2)
+        Spacer(GlanceModifier.width(8.dp))
+
+        androidx.glance.layout.Column(GlanceModifier.defaultWeight()) {
+            Text(
+                text = lesson.subject,
+                style = TextStyle(
+                    color = (if (isPast && !isNow) p.textMuted else p.textPrimary).glance(),
+                    fontSize = if (compact) 12.sp else 13.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+                maxLines = if (compact) 1 else 2,
+            )
+            if (!compact) {
+                // Короткая заметка вытесняет аудиторию: её пишут, чтобы не забыть.
+                val meta = note?.note?.takeIf { it.isNotBlank() } ?: listOfNotNull(
+                    lesson.type.ifBlank { null },
+                    lesson.room.ifBlank { null },
+                    if (s.showTeacher) {
+                        note?.teacherFull?.ifBlank { null } ?: lesson.teacher.ifBlank { null }
+                    } else null,
+                ).joinToString(" · ")
+                if (meta.isNotBlank()) {
+                    Text(
+                        meta,
+                        style = TextStyle(color = p.textMuted.glance(), fontSize = 10.sp),
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun Hint(text: String, color: androidx.compose.ui.graphics.Color) {
+    androidx.glance.layout.Box(
+        GlanceModifier.fillMaxSize().clickable(actionRunCallback<OpenAppAction>()),
+        contentAlignment = androidx.glance.layout.Alignment.Center,
+    ) {
+        Text(text, style = TextStyle(color = color.glance(), fontSize = 12.sp), maxLines = 2)
+    }
+}

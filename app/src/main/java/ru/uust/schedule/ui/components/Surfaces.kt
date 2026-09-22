@@ -2,6 +2,11 @@ package ru.uust.schedule.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.offset
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -76,4 +81,54 @@ fun Chip(
 fun Modifier.quietClickable(onClick: () -> Unit): Modifier {
     val interaction = remember { MutableInteractionSource() }
     return this.clickable(interactionSource = interaction, indication = null, onClick = onClick)
+}
+
+/**
+ * Строка, которая по свайпу влево открывает кнопки действий.
+ *
+ * Сделано жестом, а не постоянно видимыми иконками: в списке предметов
+ * действия нужны редко, и висящие кнопки только мешали бы читать названия.
+ */
+@Composable
+fun SwipeRevealRow(
+    revealWidth: Dp = 128.dp,
+    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val maxOffset = with(density) { -revealWidth.toPx() }
+    val offset = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    Box {
+        // Кнопки лежат под строкой и видны ровно настолько, насколько её сдвинули.
+        Row(
+            Modifier
+                .matchParentSize()
+                .padding(end = 2.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            content = actions,
+        )
+
+        Box(
+            Modifier
+                .offset { androidx.compose.ui.unit.IntOffset(offset.value.toInt(), 0) }
+                .draggable(
+                    orientation = androidx.compose.foundation.gestures.Orientation.Horizontal,
+                    state = rememberDraggableState { delta ->
+                        scope.launch {
+                            offset.snapTo((offset.value + delta).coerceIn(maxOffset, 0f))
+                        }
+                    },
+                    onDragStopped = {
+                        // Доводим до ближайшего края: полуоткрытое состояние выглядит поломкой.
+                        val target = if (offset.value < maxOffset / 2) maxOffset else 0f
+                        scope.launch { offset.animateTo(target) }
+                    },
+                ),
+        ) {
+            content()
+        }
+    }
 }

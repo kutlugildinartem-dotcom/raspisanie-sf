@@ -10,9 +10,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import ru.uust.schedule.data.local.LessonRecordEntity
 import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.data.prefs.AppSettings
 import ru.uust.schedule.data.prefs.AppTheme
+import ru.uust.schedule.data.prefs.ScheduleLayout
 import ru.uust.schedule.data.prefs.SettingsStore
 import ru.uust.schedule.data.repo.ScheduleRepository
 import ru.uust.schedule.data.remote.ReleaseInfo
@@ -26,6 +28,7 @@ import ru.uust.schedule.widget.WidgetUpdater
 import ru.uust.schedule.work.SyncScheduler
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 
 class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -64,7 +67,20 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         if (groupId == 0) return
         val day = repo.cachedDay(groupId, date)
         val notes = repo.notes(groupId)
-        _ui.value = _ui.value.copy(day = day, notes = notes)
+        val records = repo.recordsFor(groupId, date)
+        _ui.value = _ui.value.copy(day = day, notes = notes, records = records)
+        // Лента и таймлайн показывают сразу много дней, поэтому им нужен запас.
+        loadRange(groupId, date)
+    }
+
+    /** Дни вокруг выбранного — для режимов, которые рисуют не одну дату. */
+    private suspend fun loadRange(groupId: Int, around: LocalDate) {
+        val from = around.minusWeeks(1)
+        val to = around.plusWeeks(3)
+        _ui.value = _ui.value.copy(
+            rangeDays = repo.daysBetween(groupId, from, to),
+            rangeRecords = repo.recordsBetween(groupId, from, to),
+        )
     }
 
     fun shiftDay(delta: Int) {
@@ -183,7 +199,13 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
 
     fun notesFlow() = repo.notesFlow(settings.value.groupId)
 
-    fun saveNote(subject: String, text: String, hue: Int, custom: Boolean = false) {
+    fun saveNote(
+        subject: String,
+        text: String,
+        hue: Int,
+        custom: Boolean = false,
+        teacherFull: String = "",
+    ) {
         viewModelScope.launch {
             repo.saveNote(
                 SubjectNoteEntity(
@@ -192,6 +214,7 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
                     note = text,
                     hue = hue,
                     custom = custom,
+                    teacherFull = teacherFull,
                 )
             )
             loadDay(settings.value.groupId, _selectedDate.value)
@@ -215,11 +238,67 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // --- домашка и оценки ---
+
+    fun saveRecord(date: LocalDate, subject: String, homework: String, done: Boolean, grade: Int) {
+        viewModelScope.launch {
+            repo.saveRecord(
+                LessonRecordEntity(
+                    groupId = settings.value.groupId,
+                    isoDate = date.toString(),
+                    subject = subject,
+                    homework = homework,
+                    homeworkDone = done,
+                    grade = grade,
+                )
+            )
+            loadDay(settings.value.groupId, _selectedDate.value)
+            WidgetUpdater.updateAll(getApplication())
+        }
+    }
+
+    fun updateLayout(layout: ScheduleLayout) {
+        viewModelScope.launch { store.update { it.copy(layout = layout) } }
+    }
+
+    // --- календарь ---
+
+    /** Открыть или закрыть месяц. При открытии догружаются недостающие недели. */
+    fun toggleCalendar() {
+        val opening = !_ui.value.calendarOpen
+        _ui.value = _ui.value.copy(calendarOpen = opening)
+        if (opening) showMonth(YearMonth.from(_selectedDate.value))
+    }
+
+    fun showMonth(month: YearMonth) {
+        _ui.value = _ui.value.copy(calendarMonth = month)
+        val groupId = settings.value.groupId
+        if (groupId == 0) return
+        viewModelScope.launch {
+            // Сначала показываем то, что уже в кеше, и только потом идём в сеть:
+            // иначе календарь открывался бы пустым на время запроса.
+            loadCounts(groupId, month)
+            repo.ensureMonthLoaded(groupId, month.atDay(1))
+            loadCounts(groupId, month)
+        }
+    }
+
+    private suspend fun loadCounts(groupId: Int, month: YearMonth) {
+        val counts = repo.lessonCounts(groupId, month.atDay(1), month.atEndOfMonth())
+        _ui.value = _ui.value.copy(lessonCounts = _ui.value.lessonCounts + counts)
+    }
+
     data class UiState(
         val day: DaySchedule? = null,
         val notes: Map<String, SubjectNoteEntity> = emptyMap(),
         val loading: Boolean = false,
         val loadingGroups: Boolean = false,
         val error: String? = null,
+        val records: Map<String, LessonRecordEntity> = emptyMap(),
+        val rangeDays: List<DaySchedule> = emptyList(),
+        val rangeRecords: Map<Pair<String, String>, LessonRecordEntity> = emptyMap(),
+        val calendarOpen: Boolean = false,
+        val calendarMonth: YearMonth = YearMonth.now(),
+        val lessonCounts: Map<LocalDate, Int> = emptyMap(),
     )
 }
