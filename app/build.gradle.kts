@@ -34,8 +34,8 @@ android {
         applicationId = "ru.uust.schedule"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.5"
 
         // Откуда приложение берёт обновления — меняется в одном месте.
         buildConfigField("String", "GITHUB_OWNER", "\"kutlugildinartem-dotcom\"")
