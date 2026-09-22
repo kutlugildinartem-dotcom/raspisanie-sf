@@ -93,6 +93,9 @@ interface LessonRecordDao {
     )
     fun pendingFlow(groupId: Int, from: String): Flow<List<LessonRecordEntity>>
 
-    @Query("DELETE FROM lesson_records WHERE groupId = :groupId AND isoDate = :isoDate AND subject = :subject")
-    suspend fun delete(groupId: Int, isoDate: String, subject: String)
+    @Query(
+        "DELETE FROM lesson_records WHERE groupId = :groupId AND isoDate = :isoDate " +
+            "AND subject = :subject AND lessonNumber = :lessonNumber"
+    )
+    suspend fun delete(groupId: Int, isoDate: String, subject: String, lessonNumber: Int)
 }

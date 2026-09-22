@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -101,12 +102,14 @@ fun SwipeRevealRow(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     Box {
-        // Кнопки лежат под строкой и видны ровно настолько, насколько её сдвинули.
+        // Кнопки лежат под строкой в полосе шириной ровно revealWidth у правого
+        // края. Раньше ряд растягивался на всю карточку, и попасть по кнопке
+        // мешала сама карточка.
         Row(
             Modifier
-                .matchParentSize()
-                .padding(end = 2.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
+                .align(androidx.compose.ui.Alignment.CenterEnd)
+                .width(revealWidth),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceEvenly,
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             content = actions,
         )

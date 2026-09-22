@@ -220,27 +220,33 @@ private fun HomeworkDot(done: Boolean, accent: Color) {
 
 @Composable
 private fun GradeBadge(grade: Int, palette: Palette) {
+    val color = gradeColor(grade, palette.isDark)
     Box(
         Modifier
             .size(22.dp)
             .clip(CircleShape)
-            .background(gradeColor(grade, palette).copy(alpha = 0.18f)),
+            .background(color.copy(alpha = 0.22f)),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             grade.toString(),
             style = MaterialTheme.typography.labelMedium,
-            color = gradeColor(grade, palette),
+            color = color,
             fontWeight = FontWeight.Bold,
         )
     }
 }
 
-/** Оценка не должна кричать: «двойка» лишь заметнее, но не тревожно-красная. */
-private fun gradeColor(grade: Int, palette: Palette): Color = when {
-    grade >= 4 -> palette.accent
-    grade == 3 -> palette.textSecondary
-    else -> palette.danger
+/**
+ * Пастельные цвета оценок: приглушённая зелень, песок и терракота.
+ * Насыщенность низкая намеренно — оценка не должна кричать с экрана,
+ * особенно плохая.
+ */
+private fun gradeColor(grade: Int, isDark: Boolean): Color = when (grade) {
+    5 -> if (isDark) Color(0xFF8FC9A8) else Color(0xFF4E8C6A)
+    4 -> if (isDark) Color(0xFF9FC4D8) else Color(0xFF52819B)
+    3 -> if (isDark) Color(0xFFD8C79B) else Color(0xFF9A854B)
+    else -> if (isDark) Color(0xFFD9A69B) else Color(0xFFA56154)
 }
 
 @Composable

@@ -49,18 +49,6 @@
             android:permission="android.permission.BIND_REMOTEVIEWS" />
 
         <receiver
-            android:name=".widget.NextLessonWidgetReceiver"
-            android:exported="true"
-            android:label="@string/next_lesson_widget_description">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/next_lesson_widget_info" />
-        </receiver>
-
-        <receiver
             android:name=".widget.WeekWidgetReceiver"
             android:exported="true"
             android:label="@string/week_widget_description">

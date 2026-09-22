@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.uust.schedule.data.local.LessonRecordEntity
+import ru.uust.schedule.data.local.RecordKey
 import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.data.prefs.AppSettings
 import ru.uust.schedule.data.prefs.AppTheme
@@ -68,19 +69,38 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         val day = repo.cachedDay(groupId, date)
         val notes = repo.notes(groupId)
         val records = repo.recordsFor(groupId, date)
-        _ui.value = _ui.value.copy(day = day, notes = notes, records = records)
-        // Лента и таймлайн показывают сразу много дней, поэтому им нужен запас.
-        loadRange(groupId, date)
+        _ui.value = _ui.value.copy(
+            day = day,
+            notes = notes,
+            records = records,
+            weekMonday = ScheduleRepository.mondayOf(date),
+        )
+        // Недельные режимы рисуют сразу неделю — держим её загруженной.
+        loadWeek(groupId, ScheduleRepository.mondayOf(date))
     }
 
-    /** Дни вокруг выбранного — для режимов, которые рисуют не одну дату. */
-    private suspend fun loadRange(groupId: Int, around: LocalDate) {
-        val from = around.minusWeeks(1)
-        val to = around.plusWeeks(3)
+    /**
+     * Дни недели, показываемой в ленте и сетке, плюс записи вокруг неё.
+     * Записи берутся с запасом: карточки соседних дней тоже должны знать
+     * про домашку, когда пользователь листает неделю.
+     */
+    private suspend fun loadWeek(groupId: Int, monday: LocalDate) {
         _ui.value = _ui.value.copy(
-            rangeDays = repo.daysBetween(groupId, from, to),
-            rangeRecords = repo.recordsBetween(groupId, from, to),
+            weekDays = repo.daysBetween(groupId, monday, monday.plusDays(6)),
+            rangeRecords = repo.recordsBetween(
+                groupId, monday.minusWeeks(1), monday.plusWeeks(2),
+            ),
         )
+        repo.ensureWeekLoaded(groupId, monday)
+        _ui.value = _ui.value.copy(
+            weekDays = repo.daysBetween(groupId, monday, monday.plusDays(6)),
+        )
+    }
+
+    fun shiftWeek(delta: Int) {
+        val monday = _ui.value.weekMonday.plusWeeks(delta.toLong())
+        _ui.value = _ui.value.copy(weekMonday = monday)
+        viewModelScope.launch { loadWeek(settings.value.groupId, monday) }
     }
 
     fun shiftDay(delta: Int) {
@@ -231,7 +251,7 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteSubject(subject: String, onDone: () -> Unit) {
         viewModelScope.launch {
-            repo.deleteNote(settings.value.groupId, subject)
+            repo.removeSubject(settings.value.groupId, subject)
             loadDay(settings.value.groupId, _selectedDate.value)
             WidgetUpdater.updateAll(getApplication())
             onDone()
@@ -240,13 +260,21 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- домашка и оценки ---
 
-    fun saveRecord(date: LocalDate, subject: String, homework: String, done: Boolean, grade: Int) {
+    fun saveRecord(
+        date: LocalDate,
+        subject: String,
+        lessonNumber: Int,
+        homework: String,
+        done: Boolean,
+        grade: Int,
+    ) {
         viewModelScope.launch {
             repo.saveRecord(
                 LessonRecordEntity(
                     groupId = settings.value.groupId,
                     isoDate = date.toString(),
                     subject = subject,
+                    lessonNumber = lessonNumber,
                     homework = homework,
                     homeworkDone = done,
                     grade = grade,
@@ -294,9 +322,10 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         val loading: Boolean = false,
         val loadingGroups: Boolean = false,
         val error: String? = null,
-        val records: Map<String, LessonRecordEntity> = emptyMap(),
-        val rangeDays: List<DaySchedule> = emptyList(),
-        val rangeRecords: Map<Pair<String, String>, LessonRecordEntity> = emptyMap(),
+        val records: Map<RecordKey, LessonRecordEntity> = emptyMap(),
+        val weekDays: List<DaySchedule> = emptyList(),
+        val weekMonday: LocalDate = ScheduleRepository.mondayOf(LocalDate.now()),
+        val rangeRecords: Map<RecordKey, LessonRecordEntity> = emptyMap(),
         val calendarOpen: Boolean = false,
         val calendarMonth: YearMonth = YearMonth.now(),
         val lessonCounts: Map<LocalDate, Int> = emptyMap(),

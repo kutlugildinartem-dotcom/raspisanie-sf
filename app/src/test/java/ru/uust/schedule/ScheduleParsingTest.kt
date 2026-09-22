@@ -11,6 +11,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import ru.uust.schedule.data.local.LessonRecordEntity
+import ru.uust.schedule.data.local.RecordKey
+import ru.uust.schedule.data.local.key
+import ru.uust.schedule.ui.screens.weekRangeLabel
 import ru.uust.schedule.data.remote.ScheduleApi
 import ru.uust.schedule.data.remote.VersionCompare
 import ru.uust.schedule.domain.DayLogic
@@ -262,6 +265,7 @@ class LessonRecordTest {
         groupId = 13,
         isoDate = "2026-09-21",
         subject = "Базы данных",
+        lessonNumber = 2,
         homework = homework,
         homeworkDone = done,
         grade = grade,
@@ -293,5 +297,53 @@ class LessonRecordTest {
     @Test
     fun `пробелы не считаются домашкой`() {
         assertFalse(record(homework = "   ").hasHomework)
+    }
+}
+
+/**
+ * Один предмет может стоять дважды в день — например, две лекции подряд.
+ * Записи таких пар обязаны быть независимыми.
+ */
+class RecordKeyTest {
+
+    private fun record(number: Int, grade: Int) = LessonRecordEntity(
+        groupId = 13,
+        isoDate = "2026-09-21",
+        subject = "Базы данных",
+        lessonNumber = number,
+        grade = grade,
+    )
+
+    @Test
+    fun `две пары одного предмета не делят одну запись`() {
+        val byKey = listOf(record(2, 5), record(3, 3)).associateBy { it.key }
+
+        assertEquals(2, byKey.size)
+        assertEquals(5, byKey[RecordKey("2026-09-21", "Базы данных", 2)]?.grade)
+        assertEquals(3, byKey[RecordKey("2026-09-21", "Базы данных", 3)]?.grade)
+    }
+
+    @Test
+    fun `ключ различает дни`() {
+        val monday = record(2, 5).key
+        val tuesday = record(2, 5).copy(isoDate = "2026-09-22").key
+        assertTrue(monday != tuesday)
+    }
+}
+
+/** Подпись недельного диапазона в режимах «лента» и «две колонки». */
+class WeekRangeTest {
+
+    @Test
+    fun `неделя внутри месяца не повторяет название месяца`() {
+        assertEquals("14 — 20 сентября", weekRangeLabel(LocalDate.of(2026, 9, 14)))
+    }
+
+    @Test
+    fun `неделя на стыке месяцев называет оба`() {
+        assertEquals(
+            "28 сентября — 4 октября",
+            weekRangeLabel(LocalDate.of(2026, 9, 28)),
+        )
     }
 }

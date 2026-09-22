@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -30,11 +31,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ru.uust.schedule.data.local.LessonRecordEntity
+import ru.uust.schedule.data.local.RecordKey
 import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.domain.DayLogic
 import ru.uust.schedule.domain.DaySchedule
 import ru.uust.schedule.domain.Lesson
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import ru.uust.schedule.ui.components.Card
+import ru.uust.schedule.ui.components.quietClickable
 import ru.uust.schedule.ui.components.EmptyDayCard
 import ru.uust.schedule.ui.components.LessonCard
 import ru.uust.schedule.ui.theme.LocalPalette
@@ -44,13 +49,18 @@ import java.time.LocalDate
 /** Всё, что нужно любому из режимов отображения. */
 data class LayoutData(
     val notes: Map<String, SubjectNoteEntity>,
-    val records: Map<Pair<String, String>, LessonRecordEntity>,
+    val records: Map<RecordKey, LessonRecordEntity>,
     val today: LocalDate,
     val nowMinutes: Int,
     val onLessonClick: (LocalDate, Lesson) -> Unit,
 ) {
+    /**
+     * Запись именно этой пары. Строки из старой базы лежат с номером 0 —
+     * подхватываем их, пока пользователь не пересохранит запись.
+     */
     fun recordFor(date: LocalDate, lesson: Lesson): LessonRecordEntity? =
-        records[date.toString() to lesson.subject]
+        records[RecordKey(date.toString(), lesson.subject, lesson.number)]
+            ?: records[RecordKey(date.toString(), lesson.subject, 0)]
 
     fun isNow(date: LocalDate, lesson: Lesson): Boolean =
         date == today && lesson.startMin >= 0 &&
@@ -116,15 +126,18 @@ fun FeedLayout(days: List<DaySchedule>, data: LayoutData) {
     }
 }
 
-/** Две колонки: весь день виден сразу, без прокрутки. */
+/**
+ * Две колонки: вся неделя сразу, по дням с заголовками.
+ *
+ * Дни переключаются не здесь, а недельным переключателем сверху — в сетке
+ * важно видеть неделю целиком, иначе смысл двух колонок теряется.
+ */
 @Composable
-fun GridLayout(date: LocalDate, day: DaySchedule?, data: LayoutData, loading: Boolean) {
-    val lessons = day?.takeIf { it.isoDate == date.toString() }?.realLessons.orEmpty()
+fun GridLayout(days: List<DaySchedule>, data: LayoutData) {
+    val withLessons = days.filter { it.realLessons.isNotEmpty() }
 
-    if (lessons.isEmpty()) {
-        Column(Modifier.padding(horizontal = 20.dp)) {
-            EmptyDayCard(if (day == null && loading) "Загружаем…" else "Пар нет")
-        }
+    if (withLessons.isEmpty()) {
+        Column(Modifier.padding(horizontal = 20.dp)) { EmptyDayCard("Пар нет") }
         return
     }
 
@@ -134,105 +147,30 @@ fun GridLayout(date: LocalDate, day: DaySchedule?, data: LayoutData, loading: Bo
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        items(lessons, key = { it.number }) { lesson ->
-            LessonCard(
-                lesson = lesson,
-                isNow = data.isNow(date, lesson),
-                isPast = data.isPast(date, lesson),
-                note = data.notes[lesson.subject]?.note?.takeIf { it.isNotBlank() },
-                noteHue = data.notes[lesson.subject]?.hue ?: -1,
-                teacherFull = data.notes[lesson.subject]?.teacherFull,
-                record = data.recordFor(date, lesson),
-                compact = true,
-                onClick = { data.onLessonClick(date, lesson) },
-            )
-        }
-    }
-}
+        withLessons.forEach { day ->
+            val date = runCatching { LocalDate.parse(day.isoDate) }.getOrNull() ?: return@forEach
 
-/**
- * Таймлайн: вертикальная шкала дня с окнами между парами.
- *
- * Показывает не только пары, но и промежутки — по расписанию сразу видно,
- * где четыре часа свободны, а где пара идёт за парой.
- */
-@Composable
-fun TimelineLayout(date: LocalDate, day: DaySchedule?, data: LayoutData, loading: Boolean) {
-    val palette = LocalPalette.current
-    val lessons = day?.takeIf { it.isoDate == date.toString() }?.realLessons.orEmpty()
-
-    if (lessons.isEmpty()) {
-        Column(Modifier.padding(horizontal = 20.dp)) {
-            EmptyDayCard(if (day == null && loading) "Загружаем…" else "Пар нет")
-        }
-        return
-    }
-
-    LazyColumn(contentPadding = SidePadding) {
-        itemsIndexed(lessons) { index, lesson ->
-            val previous = lessons.getOrNull(index - 1)
-            val gap = if (previous != null && previous.endMin > 0 && lesson.startMin > 0) {
-                lesson.startMin - previous.endMin
-            } else 0
-
-            // Окно меньше получаса — это перемена, о ней сообщать незачем.
-            if (gap >= 30) GapRow(gap, palette)
-
-            Row(Modifier.fillMaxWidth()) {
-                Column(
-                    Modifier.width(22.dp).padding(top = 20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    val color = Palette.subjectColor(
-                        lesson.subject, palette, data.notes[lesson.subject]?.hue ?: -1,
-                    )
-                    Box(
-                        Modifier
-                            .size(9.dp)
-                            .clip(CircleShape)
-                            .background(if (data.isPast(date, lesson)) palette.divider else color)
-                    )
-                    if (index < lessons.lastIndex) {
-                        Box(
-                            Modifier
-                                .width(2.dp)
-                                .height(78.dp)
-                                .background(palette.divider)
-                        )
-                    }
-                }
-                Spacer(Modifier.width(10.dp))
-                Box(Modifier.weight(1f).padding(bottom = 10.dp)) {
-                    LessonEntry(date, lesson, data)
-                }
+            item(key = "h-${day.isoDate}", span = { GridItemSpan(maxLineSpan) }) {
+                DayDivider(date, data.today, day.realLessons.size)
+            }
+            items(day.realLessons, key = { "${day.isoDate}-${it.number}" }) { lesson ->
+                val note = data.notes[lesson.subject]
+                LessonCard(
+                    lesson = lesson,
+                    isNow = data.isNow(date, lesson),
+                    isPast = data.isPast(date, lesson),
+                    note = note?.note?.takeIf { it.isNotBlank() },
+                    noteHue = note?.hue ?: -1,
+                    teacherFull = note?.teacherFull,
+                    record = data.recordFor(date, lesson),
+                    compact = true,
+                    onClick = { data.onLessonClick(date, lesson) },
+                )
             }
         }
     }
 }
 
-@Composable
-private fun GapRow(minutes: Int, palette: Palette) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = 32.dp, top = 2.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            "Окно ${formatGap(minutes)}",
-            style = MaterialTheme.typography.labelSmall,
-            color = palette.textMuted,
-        )
-    }
-}
-
-private fun formatGap(minutes: Int): String {
-    val h = minutes / 60
-    val m = minutes % 60
-    return when {
-        h == 0 -> "$m мин"
-        m == 0 -> "$h ч"
-        else -> "$h ч $m мин"
-    }
-}
 
 @Composable
 private fun DayDivider(date: LocalDate, today: LocalDate, count: Int) {
@@ -286,4 +224,79 @@ private fun LessonEntry(date: LocalDate, lesson: Lesson, data: LayoutData) {
         record = data.recordFor(date, lesson),
         onClick = { data.onLessonClick(date, lesson) },
     )
+}
+
+/**
+ * Недельный переключатель для режимов, которые показывают не один день.
+ * Диапазон подписан целиком: «14 — 20 сентября», а если неделя переходит
+ * из месяца в месяц — с обоими месяцами.
+ */
+@Composable
+fun WeekSwitcher(
+    monday: LocalDate,
+    today: LocalDate,
+    onShift: (Int) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val sunday = monday.plusDays(6)
+    val isCurrent = today >= monday && today <= sunday
+
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        WeekArrow("‹", "Прошлая неделя") { onShift(-1) }
+        Spacer(Modifier.width(10.dp))
+
+        Column(Modifier.weight(1f)) {
+            Text(
+                weekRangeLabel(monday),
+                style = MaterialTheme.typography.titleMedium,
+                color = palette.textPrimary,
+            )
+            Text(
+                when {
+                    isCurrent -> "Эта неделя"
+                    monday > today -> "Впереди"
+                    else -> "Прошедшая"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.accent,
+            )
+        }
+
+        Spacer(Modifier.width(10.dp))
+        WeekArrow("›", "Следующая неделя") { onShift(1) }
+    }
+}
+
+/** «14 — 20 сентября», а на стыке месяцев «29 сентября — 5 октября». */
+fun weekRangeLabel(monday: LocalDate): String {
+    val sunday = monday.plusDays(6)
+    return if (monday.month == sunday.month) {
+        "${monday.dayOfMonth} — ${DayLogic.formatDate(sunday)}"
+    } else {
+        "${DayLogic.formatDate(monday)} — ${DayLogic.formatDate(sunday)}"
+    }
+}
+
+@Composable
+private fun WeekArrow(glyph: String, description: String, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    Box(
+        Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(palette.surface)
+            .semantics { contentDescription = description }
+            .quietClickable(onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            glyph,
+            style = MaterialTheme.typography.headlineSmall,
+            color = palette.accent,
+            fontWeight = FontWeight.Bold,
+        )
+    }
 }

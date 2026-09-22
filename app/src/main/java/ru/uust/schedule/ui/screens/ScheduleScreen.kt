@@ -1,6 +1,8 @@
 package ru.uust.schedule.ui.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -57,6 +59,7 @@ import ru.uust.schedule.data.update.UpdateState
 import ru.uust.schedule.domain.DayLogic
 import ru.uust.schedule.ui.ScheduleViewModel
 import ru.uust.schedule.ui.components.CalendarSheet
+import ru.uust.schedule.ui.components.DragHandle
 import ru.uust.schedule.ui.components.EmptyDayCard
 import ru.uust.schedule.ui.components.LessonSheet
 import ru.uust.schedule.ui.components.UpdateBanner
@@ -110,32 +113,56 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
             onToggleCalendar = vm::toggleCalendar,
         )
 
-        // Календарь выезжает свайпом вверх по полосе дат и по нажатию на неё же.
+        // Календарь выезжает сверху, пружиной — как системные панели на iPhone.
+        // Выбор даты его не закрывает: по календарю обычно смотрят несколько дней подряд.
         AnimatedVisibility(
             visible = ui.calendarOpen,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
+            enter = expandVertically(animationSpec = spring(dampingRatio = 0.78f, stiffness = 320f)) +
+                fadeIn(animationSpec = tween(160)),
+            exit = shrinkVertically(animationSpec = spring(dampingRatio = 0.9f, stiffness = 420f)) +
+                fadeOut(animationSpec = tween(120)),
         ) {
-            CalendarSheet(
-                month = ui.calendarMonth,
-                selected = date,
-                today = today,
-                counts = ui.lessonCounts,
-                onPick = {
-                    vm.selectDate(it)
-                    vm.toggleCalendar()
-                },
-                onMonthChange = vm::showMonth,
-            )
+            Column(
+                Modifier.pointerInput(Unit) {
+                    var drag = 0f
+                    detectVerticalDragGestures(
+                        onDragEnd = {
+                            if (drag < -50f) vm.toggleCalendar()
+                            drag = 0f
+                        },
+                        onVerticalDrag = { _, amount -> drag += amount },
+                    )
+                }
+            ) {
+                CalendarSheet(
+                    month = ui.calendarMonth,
+                    selected = date,
+                    today = today,
+                    counts = ui.lessonCounts,
+                    onPick = vm::selectDate,
+                    onMonthChange = vm::showMonth,
+                )
+                DragHandle()
+            }
         }
 
         if (!ui.calendarOpen) {
-            DateStrip(
-                date = date,
-                today = today,
-                onPick = vm::selectDate,
-                onOpenCalendar = vm::toggleCalendar,
-            )
+            when (settings.layout) {
+                // Недельные режимы листаются неделями, а не днями: полоса дат
+                // в них показывала бы выбор, которого нет.
+                ScheduleLayout.Feed, ScheduleLayout.Grid -> WeekSwitcher(
+                    monday = ui.weekMonday,
+                    today = today,
+                    onShift = vm::shiftWeek,
+                )
+
+                else -> DateStrip(
+                    date = date,
+                    today = today,
+                    onPick = vm::selectDate,
+                    onOpenCalendar = vm::toggleCalendar,
+                )
+            }
         }
 
         UpdateBanner(
@@ -181,29 +208,29 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
             onLessonClick = { d, lesson -> sheetTarget = d to lesson },
         )
 
-        // Лента показывает все дни сразу, поэтому анимация смены даты ей не нужна.
-        if (settings.layout == ScheduleLayout.Feed) {
-            FeedLayout(days = ui.rangeDays, data = layoutData)
-            return@Column
-        }
+        // Недельные режимы рисуют сразу много дней, анимация смены даты им не нужна.
+        when (settings.layout) {
+            ScheduleLayout.Feed -> {
+                FeedLayout(days = ui.weekDays, data = layoutData)
+                return@Column
+            }
 
-        AnimatedContent(
-            targetState = date,
-            transitionSpec = {
-                val dir = if (targetState > initialState) 1 else -1
-                (slideInHorizontally { it / 4 * dir } + fadeIn())
-                    .togetherWith(slideOutHorizontally { -it / 4 * dir } + fadeOut())
-                    .using(SizeTransform(clip = false))
-            },
-            label = "day",
-        ) { shownDate ->
-            when (settings.layout) {
-                ScheduleLayout.Grid ->
-                    GridLayout(shownDate, ui.day, layoutData, ui.loading)
-                ScheduleLayout.Timeline ->
-                    TimelineLayout(shownDate, ui.day, layoutData, ui.loading)
-                else ->
-                    DayLayout(shownDate, ui.day, layoutData, ui.loading)
+            ScheduleLayout.Grid -> {
+                GridLayout(days = ui.weekDays, data = layoutData)
+                return@Column
+            }
+
+            else -> AnimatedContent(
+                targetState = date,
+                transitionSpec = {
+                    val dir = if (targetState > initialState) 1 else -1
+                    (slideInHorizontally { it / 4 * dir } + fadeIn())
+                        .togetherWith(slideOutHorizontally { -it / 4 * dir } + fadeOut())
+                        .using(SizeTransform(clip = false))
+                },
+                label = "day",
+            ) { shownDate ->
+                DayLayout(shownDate, ui.day, layoutData, ui.loading)
             }
         }
     }
@@ -213,10 +240,14 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
             lesson = lesson,
             date = sheetDate,
             today = today,
-            record = ui.rangeRecords[sheetDate.toString() to lesson.subject],
+            record = ui.rangeRecords[
+                ru.uust.schedule.data.local.RecordKey(
+                    sheetDate.toString(), lesson.subject, lesson.number,
+                )
+            ],
             onDismiss = { sheetTarget = null },
             onSave = { homework, done, grade ->
-                vm.saveRecord(sheetDate, lesson.subject, homework, done, grade)
+                vm.saveRecord(sheetDate, lesson.subject, lesson.number, homework, done, grade)
                 sheetTarget = null
             },
         )
@@ -240,24 +271,43 @@ private fun Header(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 20.dp, top = 58.dp, bottom = 14.dp),
+            .padding(start = 20.dp, end = 20.dp, top = 58.dp, bottom = 14.dp)
+            // Потянуть вниз по заголовку — открыть календарь, как системную панель.
+            .pointerInput(calendarOpen) {
+                var drag = 0f
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (drag > 50f && !calendarOpen) onToggleCalendar()
+                        drag = 0f
+                    },
+                    onVerticalDrag = { _, amount -> drag += amount },
+                )
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
+            // День недели — крупная подпись акцентом: по ней ориентируются
+            // в первую очередь, а раньше она терялась в мелком тексте.
             Text(
-                text = DayLogic.fullDay(date),
-                style = MaterialTheme.typography.labelMedium,
+                text = DayLogic.fullDay(date).uppercase(),
+                style = MaterialTheme.typography.labelLarge,
                 color = palette.accent,
+                fontWeight = FontWeight.Bold,
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
                 text = DayLogic.title(date, today),
                 style = MaterialTheme.typography.displayMedium,
                 color = palette.textPrimary,
             )
-            Spacer(Modifier.height(3.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
-                text = "${DayLogic.formatDate(date)} · $groupName",
+                text = DayLogic.formatDate(date),
+                style = MaterialTheme.typography.titleMedium,
+                color = palette.textSecondary,
+            )
+            Text(
+                text = groupName,
                 style = MaterialTheme.typography.bodyMedium,
                 color = palette.textMuted,
             )

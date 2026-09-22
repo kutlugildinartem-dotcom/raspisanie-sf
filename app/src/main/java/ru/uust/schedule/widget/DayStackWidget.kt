@@ -111,7 +111,7 @@ private class DayStackFactory(
     private var palette: Palette = Palette.from(ru.uust.schedule.data.prefs.AppTheme.Default)
     private var theme = ru.uust.schedule.data.prefs.AppTheme.Default
     private var notes: Map<String, ru.uust.schedule.data.local.SubjectNoteEntity> = emptyMap()
-    private var records: Map<Pair<String, String>, ru.uust.schedule.data.local.LessonRecordEntity> = emptyMap()
+    private var records: Map<ru.uust.schedule.data.local.RecordKey, ru.uust.schedule.data.local.LessonRecordEntity> = emptyMap()
     private var showTeacher = true
     private var maxRows = 4
     private var compact = false
@@ -120,7 +120,21 @@ private class DayStackFactory(
 
     override fun onCreate() = Unit
 
-    override fun onDataSetChanged() = runBlocking {
+    /**
+     * Любая ошибка здесь раньше оставляла виджет навсегда в состоянии
+     * «Загрузка…»: StackView показывает загрузочный вид, пока фабрика не
+     * отдаст элементы, и молча ждёт вечно. Теперь сбой превращается в
+     * карточку с текстом, а не в вечное ожидание.
+     */
+    override fun onDataSetChanged() {
+        failure = null
+        runCatching { loadData() }.onFailure { error ->
+            failure = error.message ?: "Не удалось прочитать расписание"
+            items = emptyList()
+        }
+    }
+
+    private fun loadData() = runBlocking {
         val store = SettingsStore.get(context)
         val repo = ScheduleRepository.get(context)
 
@@ -184,11 +198,38 @@ private class DayStackFactory(
         maxRows = (available / rowHeight).coerceIn(1, 8)
     }
 
-    override fun getCount(): Int = items.size
+    private var failure: String? = null
+
+    // Никогда не возвращаем 0: пустой адаптер оставляет StackView в «Загрузке».
+    override fun getCount(): Int = items.size.coerceAtLeast(1)
+
+    /** Заглушка вместо системного «Загрузка…» — в стиле остальных карточек. */
+    override fun getLoadingView(): RemoteViews = messageCard("Загружаем расписание")
+
+    private fun messageCard(text: String): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_day_item)
+        views.setImageViewBitmap(
+            R.id.item_bg,
+            WidgetBackground.render(BG_WIDTH, BG_HEIGHT, theme, BG_CORNER),
+        )
+        views.setTextViewText(R.id.item_title, "RUUNIT")
+        views.setTextColor(R.id.item_title, palette.textPrimary.toArgb())
+        views.setTextViewText(R.id.item_date, "")
+        views.setTextViewText(R.id.item_count, "")
+        views.setViewVisibility(R.id.item_rows, android.view.View.GONE)
+        views.setViewVisibility(R.id.item_empty, android.view.View.VISIBLE)
+        views.setTextViewText(R.id.item_empty, text)
+        views.setTextColor(R.id.item_empty, palette.textSecondary.toArgb())
+        views.setOnClickFillInIntent(R.id.item_bg, Intent())
+        return views
+    }
 
     override fun getViewAt(position: Int): RemoteViews {
+        failure?.let { return messageCard(it) }
+        val item = items.getOrNull(position)
+            ?: return messageCard("Откройте приложение и выберите группу")
+
         val views = RemoteViews(context.packageName, R.layout.widget_day_item)
-        val item = items.getOrNull(position) ?: return views
         val lessons = item.day?.realLessons.orEmpty()
 
         views.setImageViewBitmap(
@@ -266,7 +307,13 @@ private class DayStackFactory(
 
             // Невыполненная домашка вытесняет всё остальное: ради неё в виджет и смотрят.
             // Точка перед текстом — тот же ненавязчивый маркер, что и в приложении.
-            val record = records[date.toString() to lesson.subject]
+            val record = records[
+                ru.uust.schedule.data.local.RecordKey(
+                    date.toString(), lesson.subject, lesson.number,
+                )
+            ] ?: records[
+                ru.uust.schedule.data.local.RecordKey(date.toString(), lesson.subject, 0)
+            ]
             val meta = when {
                 record != null && record.hasHomework && !record.homeworkDone ->
                     "• " + record.homework
@@ -290,7 +337,6 @@ private class DayStackFactory(
         }
     }
 
-    override fun getLoadingView(): RemoteViews? = null
     override fun getViewTypeCount(): Int = 1
     override fun getItemId(position: Int): Long = position.toLong()
     override fun hasStableIds(): Boolean = true

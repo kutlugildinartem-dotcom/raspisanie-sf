@@ -139,20 +139,26 @@ private fun WeekDayBlock(day: DaySchedule, s: WidgetSnapshot) {
     val isToday = date == s.today
 
     Column(GlanceModifier.fillMaxWidth().padding(bottom = 7.dp)) {
+        // Сегодняшний день крупнее и подписан словом: в списке из шести дней
+        // одного лишь цвета не хватает, чтобы сразу найти нужную строку.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = (date?.let { DayLogic.shortDay(it) + " " + it.dayOfMonth } ?: day.dayName),
                 style = TextStyle(
                     color = (if (isToday) p.accent else p.textSecondary).glance(),
-                    fontSize = 11.sp,
+                    fontSize = if (isToday) 14.sp else 11.sp,
                     fontWeight = FontWeight.Bold,
                 ),
                 maxLines = 1,
             )
             Spacer(GlanceModifier.width(6.dp))
             Text(
-                text = day.realLessons.size.toString() + " пар",
-                style = TextStyle(color = p.textMuted.glance(), fontSize = 10.sp),
+                text = if (isToday) "сегодня" else day.realLessons.size.toString() + " пар",
+                style = TextStyle(
+                    color = (if (isToday) p.accent else p.textMuted).glance(),
+                    fontSize = 10.sp,
+                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                ),
                 maxLines = 1,
             )
         }

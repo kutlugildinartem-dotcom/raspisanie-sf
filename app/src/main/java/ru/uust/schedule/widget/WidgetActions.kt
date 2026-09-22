@@ -96,7 +96,6 @@ object WidgetUpdater {
 
         val manager = GlanceAppWidgetManager(context)
         runCatching {
-            manager.getGlanceIds(NextLessonWidget::class.java).forEach { NextLessonWidget().update(context, it) }
             manager.getGlanceIds(WeekWidget::class.java).forEach { WeekWidget().update(context, it) }
             manager.getGlanceIds(NoteWidget::class.java).forEach { NoteWidget().update(context, it) }
         }

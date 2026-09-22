@@ -37,6 +37,8 @@ data class SubjectNoteEntity(
     /** Оттенок 0..360 для метки предмета; -1 — использовать акцент темы. */
     val hue: Int = -1,
     val pinned: Boolean = false,
+    /** Предмет скрыт из списка. Нужен для тех, что приходят с сайта и иначе вернулись бы. */
+    val hidden: Boolean = false,
     /** Предмет добавлен вручную: его нет в расписании, но он должен остаться в списке. */
     val custom: Boolean = false,
     /** Полное имя преподавателя: сайт отдаёт только «Иванов И.И.». */
@@ -50,11 +52,16 @@ data class SubjectNoteEntity(
  * Ключ — дата плюс название предмета, а не id занятия с сайта: id меняется при
  * пересборке расписания, и домашка тогда отвязалась бы от пары.
  */
-@Entity(tableName = "lesson_records", primaryKeys = ["groupId", "isoDate", "subject"])
+@Entity(
+    tableName = "lesson_records",
+    primaryKeys = ["groupId", "isoDate", "subject", "lessonNumber"],
+)
 data class LessonRecordEntity(
     val groupId: Int,
     val isoDate: String,
     val subject: String,
+    /** Номер пары в дне. Без него один предмет дважды за день делил бы одну запись. */
+    val lessonNumber: Int,
     val homework: String = "",
     val homeworkDone: Boolean = false,
     /** Оценка 1..5; 0 — не выставлена. */
@@ -64,3 +71,9 @@ data class LessonRecordEntity(
     val hasHomework: Boolean get() = homework.isNotBlank()
     val isEmpty: Boolean get() = homework.isBlank() && grade == 0 && !homeworkDone
 }
+
+/** Чем однозначно определяется запись: день, предмет и номер пары в этом дне. */
+data class RecordKey(val isoDate: String, val subject: String, val lessonNumber: Int)
+
+val LessonRecordEntity.key: RecordKey
+    get() = RecordKey(isoDate, subject, lessonNumber)

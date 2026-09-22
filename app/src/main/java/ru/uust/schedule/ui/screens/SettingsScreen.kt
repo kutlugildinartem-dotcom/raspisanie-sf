@@ -481,19 +481,6 @@ private fun LayoutPreview(layout: ScheduleLayout, selected: Boolean) {
                 }
             }
 
-            ScheduleLayout.Timeline -> Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Box(
-                    Modifier
-                        .width(2.dp)
-                        .height(32.dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(faint)
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Bar(bar, 1f)
-                    Bar(bar, 0.7f)
-                }
-            }
         }
     }
 }

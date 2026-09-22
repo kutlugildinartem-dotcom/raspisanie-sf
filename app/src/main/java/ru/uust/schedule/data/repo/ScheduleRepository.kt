@@ -11,6 +11,8 @@ import ru.uust.schedule.data.local.AppDatabase
 import ru.uust.schedule.data.local.DayEntity
 import ru.uust.schedule.data.local.GroupEntity
 import ru.uust.schedule.data.local.LessonRecordEntity
+import ru.uust.schedule.data.local.RecordKey
+import ru.uust.schedule.data.local.key
 import ru.uust.schedule.data.local.SubjectNoteEntity
 import ru.uust.schedule.data.prefs.SettingsStore
 import ru.uust.schedule.data.remote.ScheduleApi
@@ -71,9 +73,12 @@ class ScheduleRepository(
                 )
             }
 
+        val notes = db.noteDao().notes(groupId)
+        val hidden = notes.filter { it.hidden }.mapTo(mutableSetOf()) { it.subject }
+
         val known = fromSchedule.mapTo(mutableSetOf()) { it.subject }
-        val manual = db.noteDao().notes(groupId)
-            .filter { it.custom && it.subject !in known }
+        val manual = notes
+            .filter { it.custom && !it.hidden && it.subject !in known }
             .map { note ->
                 SubjectSummary(
                     subject = note.subject,
@@ -85,7 +90,9 @@ class ScheduleRepository(
                 )
             }
 
-        (fromSchedule + manual).sortedBy { it.subject.lowercase() }
+        (fromSchedule + manual)
+            .filter { it.subject !in hidden }
+            .sortedBy { it.subject.lowercase() }
     }
 
     /**
@@ -149,6 +156,17 @@ class ScheduleRepository(
             db.scheduleDao().pruneOlderThan(LocalDate.now().minusDays(30).toString())
             saved
         }
+
+    /** Догружает неделю, если её нет в кеше — режимы «лента» и «две колонки» листают далеко. */
+    suspend fun ensureWeekLoaded(groupId: Int, monday: LocalDate) = withContext(Dispatchers.IO) {
+        if (groupId == 0) return@withContext
+        val cached = db.scheduleDao()
+            .daysBetween(groupId, monday.toString(), monday.plusDays(5).toString())
+        if (cached.isNotEmpty()) return@withContext
+        val offset = ChronoUnit.WEEKS.between(mondayOf(LocalDate.now()), monday).toInt()
+        runCatching { syncWeeks(groupId, listOf(offset)) }
+        Unit
+    }
 
     /**
      * Догружает недели, которых не хватает для показа месяца [anyDayOfMonth].
@@ -226,18 +244,17 @@ class ScheduleRepository(
 
     // --- домашка и оценки ---
 
-    suspend fun recordsFor(groupId: Int, date: LocalDate): Map<String, LessonRecordEntity> =
+    suspend fun recordsFor(groupId: Int, date: LocalDate): Map<RecordKey, LessonRecordEntity> =
         withContext(Dispatchers.IO) {
-            db.recordDao().forDate(groupId, date.toString()).associateBy { it.subject }
+            db.recordDao().forDate(groupId, date.toString()).associateBy { it.key }
         }
 
     suspend fun recordsBetween(
         groupId: Int,
         from: LocalDate,
         to: LocalDate,
-    ): Map<Pair<String, String>, LessonRecordEntity> = withContext(Dispatchers.IO) {
-        db.recordDao().between(groupId, from.toString(), to.toString())
-            .associateBy { it.isoDate to it.subject }
+    ): Map<RecordKey, LessonRecordEntity> = withContext(Dispatchers.IO) {
+        db.recordDao().between(groupId, from.toString(), to.toString()).associateBy { it.key }
     }
 
     fun pendingHomeworkFlow(groupId: Int): Flow<List<LessonRecordEntity>> =
@@ -248,8 +265,11 @@ class ScheduleRepository(
      * иначе таблица копила бы строки от каждого открытого и закрытого окна.
      */
     suspend fun saveRecord(record: LessonRecordEntity) = withContext(Dispatchers.IO) {
+        // Запись могла прийти из старой базы с номером 0 — уберём её, чтобы
+        // не осталось призрака, который подхватывается запасным поиском.
+        db.recordDao().delete(record.groupId, record.isoDate, record.subject, 0)
         if (record.isEmpty) {
-            db.recordDao().delete(record.groupId, record.isoDate, record.subject)
+            db.recordDao().delete(record.groupId, record.isoDate, record.subject, record.lessonNumber)
         } else {
             db.recordDao().upsert(record.copy(updatedAt = System.currentTimeMillis()))
         }
@@ -268,6 +288,29 @@ class ScheduleRepository(
 
     suspend fun saveNote(note: SubjectNoteEntity) = withContext(Dispatchers.IO) {
         db.noteDao().upsert(note.copy(updatedAt = System.currentTimeMillis()))
+    }
+
+    /**
+     * Убирает предмет из списка.
+     *
+     * Заведённый вручную удаляется совсем, пришедший с сайта помечается
+     * скрытым: удалить его по-настоящему нельзя, он вернётся с ближайшей
+     * синхронизацией.
+     */
+    suspend fun removeSubject(groupId: Int, subject: String) = withContext(Dispatchers.IO) {
+        val existing = db.noteDao().note(groupId, subject)
+        if (existing != null && existing.custom) {
+            db.noteDao().delete(groupId, subject)
+        } else {
+            db.noteDao().upsert(
+                SubjectNoteEntity(
+                    groupId = groupId,
+                    subject = subject,
+                    hidden = true,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            )
+        }
     }
 
     suspend fun deleteNote(groupId: Int, subject: String) = withContext(Dispatchers.IO) {
