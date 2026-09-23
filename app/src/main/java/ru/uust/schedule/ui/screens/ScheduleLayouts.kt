@@ -52,6 +52,8 @@ import java.time.LocalDate
 data class LayoutData(
     val notes: Map<String, SubjectNoteEntity>,
     val records: Map<RecordKey, LessonRecordEntity>,
+    /** Не сданные задания со сроком, отдельно от [records] — срок может выпасть на другую пару. */
+    val dueHomework: List<ru.uust.schedule.domain.HomeworkItem> = emptyList(),
     val today: LocalDate,
     val nowMinutes: Int,
     val onLessonClick: (LocalDate, Lesson) -> Unit,
@@ -63,6 +65,15 @@ data class LayoutData(
     fun recordFor(date: LocalDate, lesson: Lesson): LessonRecordEntity? =
         records[RecordKey(date.toString(), lesson.subject, lesson.number)]
             ?: records[RecordKey(date.toString(), lesson.subject, 0)]
+
+    /**
+     * Текст задания, чей срок выпадает именно на эту пару, если у неё самой
+     * записи нет — так предмет снова появляется в расписании уже с долгом.
+     */
+    fun dueTextFor(date: LocalDate, lesson: Lesson): String? {
+        if (recordFor(date, lesson) != null) return null
+        return dueHomework.firstOrNull { it.subject == lesson.subject && it.due == date }?.text
+    }
 
     fun isNow(date: LocalDate, lesson: Lesson): Boolean =
         date == today && lesson.startMin >= 0 &&
@@ -209,6 +220,7 @@ fun GridLayout(days: List<DaySchedule>, data: LayoutData, weekMonday: LocalDate)
                     noteHue = note?.hue ?: -1,
                     teacherFull = note?.teacherFull,
                     record = data.recordFor(date, lesson),
+                    dueText = data.dueTextFor(date, lesson),
                     compact = true,
                     onClick = { data.onLessonClick(date, lesson) },
                 )
@@ -268,6 +280,7 @@ private fun LessonEntry(date: LocalDate, lesson: Lesson, data: LayoutData) {
         noteHue = note?.hue ?: -1,
         teacherFull = note?.teacherFull,
         record = data.recordFor(date, lesson),
+        dueText = data.dueTextFor(date, lesson),
         onClick = { data.onLessonClick(date, lesson) },
     )
 }
@@ -297,8 +310,9 @@ fun WeekSwitcher(
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 weekRangeLabel(monday),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.headlineSmall,
                 color = palette.textPrimary,
+                fontWeight = FontWeight.Bold,
             )
             Text(
                 when {

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Статичная картинка для галереи выбора виджета (android:previewImage).
+
+  Без неё часть лаунчеров (особенно со сторонним оформлением виджетов —
+  оформление под iOS и подобные) пытается вживую отрендерить превью через
+  RemoteViewsService ещё до того, как у виджета появился настоящий
+  appWidgetId с данными. Такой предварительный рендер часто зависает
+  на «Загрузка…» прямо в галерее выбора, до какого-либо размещения —
+  именно это похоже на то, что видно на скриншоте пользователя.
+  Простая статичная картинка полностью убирает эту попытку.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FF1A1D21" />
+            <corners android:radius="24dp" />
+        </shape>
+    </item>
+    <item
+        android:width="28dp"
+        android:height="28dp"
+        android:gravity="center">
+        <shape android:shape="rectangle">
+            <solid android:color="#FF4FD1C5" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+</layer-list>

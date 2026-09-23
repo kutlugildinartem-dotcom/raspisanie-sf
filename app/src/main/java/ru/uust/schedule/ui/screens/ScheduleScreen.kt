@@ -90,6 +90,14 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     var upcomingHomework by remember {
         mutableStateOf<List<ru.uust.schedule.domain.HomeworkItem>>(emptyList())
     }
+    // Не сданные задания со сроком — чтобы показать текст под парой, на которую
+    // выпадает срок, даже если запись создавалась на другом занятии.
+    var dueHomework by remember {
+        mutableStateOf<List<ru.uust.schedule.domain.HomeworkItem>>(emptyList())
+    }
+    LaunchedEffect(settings.groupId, ui.rangeRecords) {
+        vm.loadHomework { items -> dueHomework = items.filterNot { it.done } }
+    }
 
     val today = LocalDate.now()
     val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
@@ -304,6 +312,7 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
         val layoutData = LayoutData(
             notes = ui.notes,
             records = ui.rangeRecords,
+            dueHomework = dueHomework,
             today = today,
             nowMinutes = nowMinutes,
             onLessonClick = { d, lesson -> sheetTarget = d to lesson },

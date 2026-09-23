@@ -51,6 +51,12 @@ fun LessonCard(
     /** Полное имя преподавателя, если пользователь его ввёл: сайт даёт только инициалы. */
     teacherFull: String? = null,
     record: LessonRecordEntity? = null,
+    /**
+     * Текст задания, срок которого выпадает именно на эту пару — когда предмет
+     * появляется в расписании снова, а задание было записано раньше, на другом
+     * занятии. Показывается, только если у самой этой пары своей записи нет.
+     */
+    dueText: String? = null,
     compact: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
@@ -140,6 +146,15 @@ fun LessonCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    } else if (!dueText.isNullOrBlank()) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = dueText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.accent,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 } else {
                     val teacher = teacherFull?.ifBlank { null } ?: lesson.teacher.ifBlank { null }
@@ -157,6 +172,9 @@ fun LessonCard(
                     if (!record?.homework.isNullOrBlank()) {
                         Spacer(Modifier.height(10.dp))
                         HomeworkStrip(record!!, palette.accent)
+                    } else if (!dueText.isNullOrBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        HomeworkStrip(dueText, palette.accent, done = false)
                     }
                 }
 
@@ -244,21 +262,25 @@ private fun gradeColor(grade: Int, isDark: Boolean): Color = when (grade) {
 }
 
 @Composable
-private fun HomeworkStrip(record: LessonRecordEntity, accent: Color) {
+private fun HomeworkStrip(record: LessonRecordEntity, accent: Color) =
+    HomeworkStrip(record.homework, accent, record.homeworkDone)
+
+@Composable
+private fun HomeworkStrip(text: String, accent: Color, done: Boolean) {
     val palette = LocalPalette.current
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(11.dp))
-            .background(accent.copy(alpha = if (record.homeworkDone) 0.06f else 0.12f))
+            .background(accent.copy(alpha = if (done) 0.06f else 0.12f))
             .padding(horizontal = 11.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Text(
-            record.homework,
+            text,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (record.homeworkDone) palette.textMuted else palette.textSecondary,
-            textDecoration = if (record.homeworkDone) TextDecoration.LineThrough else null,
+            color = if (done) palette.textMuted else palette.textSecondary,
+            textDecoration = if (done) TextDecoration.LineThrough else null,
             maxLines = 4,
             overflow = TextOverflow.Ellipsis,
         )
