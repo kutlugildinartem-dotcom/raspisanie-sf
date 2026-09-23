@@ -64,33 +64,52 @@ class DayWidgetReceiver : AppWidgetProvider() {
         const val DAYS_FORWARD = 21
 
         fun render(context: Context, manager: AppWidgetManager, appWidgetId: Int) {
-            val views = RemoteViews(context.packageName, R.layout.widget_day_stack)
+            // Лаунчер показывает голое «Не удалось обновить виджет» без деталей,
+            // если apply() уронит исключение. Ловим здесь и рисуем текст ошибки
+            // прямо на виджете — это единственный способ узнать причину без
+            // доступа к logcat пользователя.
+            try {
+                val views = RemoteViews(context.packageName, R.layout.widget_day_stack)
 
-            val intent = Intent(context, DayStackService::class.java).apply {
-                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                // Intent.filterEquals() не сравнивает extras — без уникального data
-                // Android считает интенты двух разных виджетов одинаковыми и отдаёт
-                // им общее соединение с фабрикой, так что оба показывают одно и то же
-                // (или ничего, если фабрика повисает). Обычный иерархический URI —
-                // без обратной сериализации самого intent через toUri(), которая
-                // на некоторых прошивках не переживает проход через Binder лаунчера.
-                data = android.net.Uri.parse("widget://day/$appWidgetId")
+                val intent = Intent(context, DayStackService::class.java).apply {
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                    // Intent.filterEquals() не сравнивает extras — без уникального data
+                    // Android считает интенты двух разных виджетов одинаковыми и отдаёт
+                    // им общее соединение с фабрикой, так что оба показывают одно и то же
+                    // (или ничего, если фабрика повисает). Обычный иерархический URI —
+                    // без обратной сериализации самого intent через toUri(), которая
+                    // на некоторых прошивках не переживает проход через Binder лаунчера.
+                    data = android.net.Uri.parse("widget://day/$appWidgetId")
+                }
+                views.setRemoteAdapter(R.id.day_stack, intent)
+                views.setEmptyView(R.id.day_stack, R.id.day_empty)
+
+                // Шаблон клика: сам элемент дописывает в него свои extras.
+                val open = PendingIntent.getActivity(
+                    context,
+                    appWidgetId,
+                    Intent(context, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                )
+                views.setPendingIntentTemplate(R.id.day_stack, open)
+
+                manager.updateAppWidget(appWidgetId, views)
+                manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.day_stack)
+            } catch (e: Throwable) {
+                showError(context, manager, appWidgetId, e)
             }
-            views.setRemoteAdapter(R.id.day_stack, intent)
-            views.setEmptyView(R.id.day_stack, R.id.day_empty)
+        }
 
-            // Шаблон клика: сам элемент дописывает в него свои extras.
-            val open = PendingIntent.getActivity(
-                context,
-                appWidgetId,
-                Intent(context, MainActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-            )
-            views.setPendingIntentTemplate(R.id.day_stack, open)
-
-            manager.updateAppWidget(appWidgetId, views)
-            manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.day_stack)
+        private fun showError(
+            context: Context,
+            manager: AppWidgetManager,
+            appWidgetId: Int,
+            e: Throwable,
+        ) {
+            val error = RemoteViews(context.packageName, R.layout.widget_error)
+            error.setTextViewText(R.id.widget_error_text, "RUUNIT: ${e.javaClass.simpleName}: ${e.message}")
+            runCatching { manager.updateAppWidget(appWidgetId, error) }
         }
     }
 }
@@ -240,7 +259,11 @@ private class DayStackFactory(
         return views
     }
 
-    override fun getViewAt(position: Int): RemoteViews {
+    override fun getViewAt(position: Int): RemoteViews =
+        runCatching { buildView(position) }
+            .getOrElse { e -> messageCard("${e.javaClass.simpleName}: ${e.message}") }
+
+    private fun buildView(position: Int): RemoteViews {
         failure?.let { return messageCard(it) }
         val item = items.getOrNull(position)
             ?: return messageCard("Откройте приложение и выберите группу")

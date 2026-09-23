@@ -50,27 +50,42 @@ class WeekWidgetReceiver : AppWidgetProvider() {
         const val WEEKS_FORWARD = 8
 
         fun render(context: Context, manager: AppWidgetManager, appWidgetId: Int) {
-            val views = RemoteViews(context.packageName, R.layout.widget_week_stack)
+            try {
+                val views = RemoteViews(context.packageName, R.layout.widget_week_stack)
 
-            val intent = Intent(context, WeekStackService::class.java).apply {
-                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                // См. комментарий в DayWidgetReceiver.render — простой URI вместо toUri().
-                data = android.net.Uri.parse("widget://week/$appWidgetId")
+                val intent = Intent(context, WeekStackService::class.java).apply {
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                    // См. комментарий в DayWidgetReceiver.render — простой URI вместо toUri().
+                    data = android.net.Uri.parse("widget://week/$appWidgetId")
+                }
+                views.setRemoteAdapter(R.id.week_stack, intent)
+                views.setEmptyView(R.id.week_stack, R.id.week_stack_empty)
+
+                val open = PendingIntent.getActivity(
+                    context,
+                    appWidgetId,
+                    Intent(context, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                )
+                views.setPendingIntentTemplate(R.id.week_stack, open)
+
+                manager.updateAppWidget(appWidgetId, views)
+                manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.week_stack)
+            } catch (e: Throwable) {
+                showError(context, manager, appWidgetId, e)
             }
-            views.setRemoteAdapter(R.id.week_stack, intent)
-            views.setEmptyView(R.id.week_stack, R.id.week_stack_empty)
+        }
 
-            val open = PendingIntent.getActivity(
-                context,
-                appWidgetId,
-                Intent(context, MainActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-            )
-            views.setPendingIntentTemplate(R.id.week_stack, open)
-
-            manager.updateAppWidget(appWidgetId, views)
-            manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.week_stack)
+        private fun showError(
+            context: Context,
+            manager: AppWidgetManager,
+            appWidgetId: Int,
+            e: Throwable,
+        ) {
+            val error = RemoteViews(context.packageName, R.layout.widget_error)
+            error.setTextViewText(R.id.widget_error_text, "RUUNIT: ${e.javaClass.simpleName}: ${e.message}")
+            runCatching { manager.updateAppWidget(appWidgetId, error) }
         }
     }
 }
@@ -162,7 +177,11 @@ private class WeekStackFactory(
         return views
     }
 
-    override fun getViewAt(position: Int): RemoteViews {
+    override fun getViewAt(position: Int): RemoteViews =
+        runCatching { buildView(position) }
+            .getOrElse { e -> messageCard("${e.javaClass.simpleName}: ${e.message}") }
+
+    private fun buildView(position: Int): RemoteViews {
         failure?.let { return messageCard(it) }
         val week = weeks.getOrNull(position)
             ?: return messageCard("Откройте приложение и выберите группу")
