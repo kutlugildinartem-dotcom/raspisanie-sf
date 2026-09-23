@@ -68,8 +68,13 @@ class DayWidgetReceiver : AppWidgetProvider() {
 
             val intent = Intent(context, DayStackService::class.java).apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                // Без уникального data Android переиспользует фабрику другого виджета.
-                data = android.net.Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
+                // Intent.filterEquals() не сравнивает extras — без уникального data
+                // Android считает интенты двух разных виджетов одинаковыми и отдаёт
+                // им общее соединение с фабрикой, так что оба показывают одно и то же
+                // (или ничего, если фабрика повисает). Обычный иерархический URI —
+                // без обратной сериализации самого intent через toUri(), которая
+                // на некоторых прошивках не переживает проход через Binder лаунчера.
+                data = android.net.Uri.parse("widget://day/$appWidgetId")
             }
             views.setRemoteAdapter(R.id.day_stack, intent)
             views.setEmptyView(R.id.day_stack, R.id.day_empty)

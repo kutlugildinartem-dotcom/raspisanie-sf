@@ -64,6 +64,8 @@ fun LessonSheet(
     today: LocalDate,
     record: LessonRecordEntity?,
     attachments: List<AttachmentEntity>,
+    /** Даты 1–2 ближайших пар по этому предмету — для «к следующей»/«через пару» с числом дней. */
+    upcomingLessonDates: List<LocalDate>,
     upcoming: List<HomeworkItem>,
     onDismiss: () -> Unit,
     onAttach: (uri: String, name: String) -> Unit,
@@ -77,6 +79,13 @@ fun LessonSheet(
     var done by remember { mutableStateOf(record?.homeworkDone ?: false) }
     var grade by remember { mutableStateOf(record?.grade ?: 0) }
     var due by remember { mutableStateOf(record?.dueDate.orEmpty()) }
+    // Уже сохранённый срок не трогаем; для новой записи подставляем дату
+    // следующей пары, как только она подгрузится из кеша.
+    androidx.compose.runtime.LaunchedEffect(upcomingLessonDates) {
+        if (record?.dueDate.isNullOrBlank() && due.isBlank()) {
+            upcomingLessonDates.firstOrNull()?.let { due = it.toString() }
+        }
+    }
 
     val isPastDay = date <= today
 
@@ -132,8 +141,8 @@ fun LessonSheet(
                     Spacer(Modifier.height(12.dp))
                     DueDatePicker(
                         due = due,
-                        lessonDate = date,
                         today = today,
+                        upcomingLessonDates = upcomingLessonDates,
                         onPick = { due = it },
                     )
 
@@ -183,20 +192,31 @@ fun LessonSheet(
 }
 
 /**
- * Срок сдачи. По умолчанию — «к следующей паре»: так его понимают почти
- * всегда, поэтому конкретные даты предлагаются рядом, а не вместо.
+ * Срок сдачи. Первые два варианта — не абстрактные, а с конкретной датой
+ * пары по этому предмету, как только становится известно, когда она:
+ * «к следующей паре» без даты ничего не говорит о том, сколько дней есть
+ * на самом деле, а именно это интересует в первую очередь.
  */
 @Composable
 private fun DueDatePicker(
     due: String,
-    lessonDate: LocalDate,
     today: LocalDate,
+    upcomingLessonDates: List<LocalDate>,
     onPick: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val options = remember(lessonDate) {
+    val options = remember(upcomingLessonDates) {
         buildList {
-            add("" to "К следующей паре")
+            upcomingLessonDates.getOrNull(0)?.let {
+                add(it.toString() to "К следующей паре · ${daysHint(it, today)}")
+            }
+            upcomingLessonDates.getOrNull(1)?.let {
+                add(it.toString() to "Через пару · ${daysHint(it, today)}")
+            }
+            // Пока расписание для этого предмета не подгружено — сработает,
+            // даты появятся сами при следующей синхронизации.
+            if (upcomingLessonDates.isEmpty()) add("" to "К следующей паре")
+
             (1..7).forEach { offset ->
                 val date = today.plusDays(offset.toLong())
                 add(date.toString() to DayLogic.title(date, today).lowercase())
@@ -214,6 +234,25 @@ private fun DueDatePicker(
             options.forEach { (value, label) ->
                 Chip(text = label, selected = due == value, onClick = { onPick(value) })
             }
+        }
+    }
+}
+
+/** «сегодня» / «завтра» / «через N дней» — то самое число дней, ради которого выбирают срок. */
+private fun daysHint(date: LocalDate, today: LocalDate): String {
+    val days = java.time.temporal.ChronoUnit.DAYS.between(today, date)
+    return when (days) {
+        0L -> "сегодня"
+        1L -> "завтра"
+        else -> {
+            val mod = days % 100
+            val word = when {
+                mod in 11..19 -> "дней"
+                mod % 10 == 1L -> "день"
+                mod % 10 in 2..4 -> "дня"
+                else -> "дней"
+            }
+            "через $days $word"
         }
     }
 }

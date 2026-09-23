@@ -312,12 +312,12 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
         // Недельные режимы рисуют сразу много дней, анимация смены даты им не нужна.
         when (settings.layout) {
             ScheduleLayout.Feed -> {
-                FeedLayout(days = ui.weekDays, data = layoutData)
+                FeedLayout(days = ui.weekDays, data = layoutData, weekMonday = ui.weekMonday)
                 return@Column
             }
 
             ScheduleLayout.Grid -> {
-                GridLayout(days = ui.weekDays, data = layoutData)
+                GridLayout(days = ui.weekDays, data = layoutData, weekMonday = ui.weekMonday)
                 return@Column
             }
 
@@ -337,11 +337,14 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     }
 
     sheetTarget?.let { (sheetDate, lesson) ->
-        // Вложения и список ближайших заданий подтягиваются под конкретную пару,
-        // как только окно открылось.
+        var upcomingLessonDates by remember { mutableStateOf(emptyList<LocalDate>()) }
+
+        // Вложения, список ближайших заданий и даты следующих пар по этому
+        // предмету подтягиваются под конкретную пару, как только окно открылось.
         LaunchedEffect(sheetDate, lesson.number) {
             vm.loadAttachments(sheetDate, lesson.subject, lesson.number)
             vm.loadHomework { upcomingHomework = it }
+            vm.loadUpcomingLessonDates(lesson.subject, sheetDate) { upcomingLessonDates = it }
         }
 
         LessonSheet(
@@ -354,6 +357,7 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                 )
             ],
             attachments = ui.attachments,
+            upcomingLessonDates = upcomingLessonDates,
             // Своё же задание в подсказке не показываем — оно и так в поле выше.
             upcoming = upcomingHomework.filterNot {
                 it.done || (it.subject == lesson.subject && it.lessonDate == sheetDate)

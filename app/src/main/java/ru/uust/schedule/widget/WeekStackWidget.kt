@@ -54,8 +54,8 @@ class WeekWidgetReceiver : AppWidgetProvider() {
 
             val intent = Intent(context, WeekStackService::class.java).apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                // Без уникального data Android переиспользует фабрику другого виджета.
-                data = android.net.Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
+                // См. комментарий в DayWidgetReceiver.render — простой URI вместо toUri().
+                data = android.net.Uri.parse("widget://week/$appWidgetId")
             }
             views.setRemoteAdapter(R.id.week_stack, intent)
             views.setEmptyView(R.id.week_stack, R.id.week_stack_empty)

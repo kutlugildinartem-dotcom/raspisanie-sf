@@ -227,3 +227,24 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 }
+
+/**
+ * Виджеты не узнают о самообновлении приложения сами.
+ *
+ * Android не вызывает AppWidgetProvider.onUpdate() только потому, что APK
+ * подменился новой версией — уже размещённые виджеты продолжают висеть на
+ * старом состоянии RemoteViews, пока что-то явно не перерисует их заново.
+ * ACTION_MY_PACKAGE_REPLACED — единственный сигнал именно об этом моменте.
+ */
+class PackageReplacedReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        val pending = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                ru.uust.schedule.widget.WidgetUpdater.updateAllNow(context)
+            }
+            pending.finish()
+        }
+    }
+}

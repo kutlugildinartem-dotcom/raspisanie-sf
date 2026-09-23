@@ -86,6 +86,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- Перерисовывает виджеты сразу после самообновления приложения — иначе
+             они остаются на старом состоянии, пока пользователь их не тронет. -->
+        <receiver
+            android:name=".work.PackageReplacedReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

@@ -19,6 +19,8 @@ import ru.uust.schedule.data.remote.VersionCompare
 import ru.uust.schedule.domain.DayLogic
 import ru.uust.schedule.domain.HomeworkBucket
 import ru.uust.schedule.domain.HomeworkItem
+import ru.uust.schedule.domain.DaySchedule
+import ru.uust.schedule.ui.screens.headerIndices
 import ru.uust.schedule.domain.Lesson
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -466,5 +468,44 @@ class HomeworkDeadlineTest {
         assertEquals("через 2 дня", item(today.plusDays(2)).dueLabel(today))
         assertEquals("через 5 дней", item(today.plusDays(5)).dueLabel(today))
         assertEquals("просрочено на 1 день", item(today.minusDays(1)).dueLabel(today))
+    }
+}
+
+/**
+ * Индекс заголовка дня в плоском списке ленты/сетки — от него зависит,
+ * докуда именно проскроллит автопрокрутка «открылись сразу на сегодня».
+ */
+class HeaderIndicesTest {
+
+    private fun day(iso: String, lessonCount: Int) = DaySchedule(
+        isoDate = iso,
+        dayName = "",
+        lessons = List(lessonCount) { i ->
+            Lesson(number = i + 1, type = "Пр", subject = "Предмет", room = "101", teacher = "")
+        },
+    )
+
+    @Test
+    fun `индекс второго дня равен числу элементов первого плюс его собственный заголовок`() {
+        val days = listOf(day("2026-09-21", lessonCount = 3), day("2026-09-22", lessonCount = 2))
+        val indices = headerIndices(days)
+
+        assertEquals(0, indices[LocalDate.of(2026, 9, 21)])
+        // 1 заголовок + 3 пары первого дня = 4.
+        assertEquals(4, indices[LocalDate.of(2026, 9, 22)])
+    }
+
+    @Test
+    fun `день без пар не искажает индексы соседей`() {
+        val days = listOf(
+            day("2026-09-21", lessonCount = 2),
+            day("2026-09-22", lessonCount = 0),
+            day("2026-09-23", lessonCount = 1),
+        )
+        val indices = headerIndices(days)
+
+        assertEquals(0, indices[LocalDate.of(2026, 9, 21)])
+        assertEquals(3, indices[LocalDate.of(2026, 9, 22)])
+        assertEquals(4, indices[LocalDate.of(2026, 9, 23)])
     }
 }

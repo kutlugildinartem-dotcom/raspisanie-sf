@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,9 +101,14 @@ fun DayLayout(date: LocalDate, day: DaySchedule?, data: LayoutData, loading: Boo
  *
  * Пустые дни пропускаются — в непрерывном списке заголовок «Пар нет»
  * только отодвигал бы вниз то, ради чего список открыли.
+ *
+ * На текущей неделе лента сама открывается на сегодняшнем дне — не хочется
+ * каждый раз долистывать понедельник-четверг, чтобы увидеть пятницу.
+ * На чужих неделях (пролистанных вперёд/назад) такого рывка нет: там
+ * естественнее смотреть с начала.
  */
 @Composable
-fun FeedLayout(days: List<DaySchedule>, data: LayoutData) {
+fun FeedLayout(days: List<DaySchedule>, data: LayoutData, weekMonday: LocalDate) {
     val withLessons = days.filter { it.realLessons.isNotEmpty() }
 
     if (withLessons.isEmpty()) {
@@ -109,7 +116,22 @@ fun FeedLayout(days: List<DaySchedule>, data: LayoutData) {
         return
     }
 
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val headerIndex = remember(withLessons) { headerIndices(withLessons) }
+
+    // Ключ включает сами дни, а не только понедельник: при первом открытии
+    // экрана данные недели ещё пусты (кеш читается асинхронно), и если
+    // держать эффект только на weekMonday, который уже верен с самого начала,
+    // прокрутка выполнится по пустому списку и второй раз не перезапустится,
+    // когда данные наконец придут.
+    LaunchedEffect(weekMonday, withLessons) {
+        if (weekMonday != ru.uust.schedule.data.repo.ScheduleRepository.mondayOf(data.today)) return@LaunchedEffect
+        val target = headerIndex.keys.filter { it >= data.today }.minOrNull() ?: return@LaunchedEffect
+        headerIndex[target]?.let { listState.scrollToItem(it) }
+    }
+
     LazyColumn(
+        state = listState,
         contentPadding = SidePadding,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -126,6 +148,18 @@ fun FeedLayout(days: List<DaySchedule>, data: LayoutData) {
     }
 }
 
+/** Плоский индекс элемента-заголовка каждого дня — нужен, чтобы проскроллить к нему напрямую. */
+internal fun headerIndices(days: List<DaySchedule>): Map<LocalDate, Int> {
+    val result = mutableMapOf<LocalDate, Int>()
+    var index = 0
+    days.forEach { day ->
+        val date = runCatching { LocalDate.parse(day.isoDate) }.getOrNull()
+        if (date != null) result[date] = index
+        index += 1 + day.realLessons.size
+    }
+    return result
+}
+
 /**
  * Две колонки: вся неделя сразу, по дням с заголовками.
  *
@@ -133,7 +167,7 @@ fun FeedLayout(days: List<DaySchedule>, data: LayoutData) {
  * важно видеть неделю целиком, иначе смысл двух колонок теряется.
  */
 @Composable
-fun GridLayout(days: List<DaySchedule>, data: LayoutData) {
+fun GridLayout(days: List<DaySchedule>, data: LayoutData, weekMonday: LocalDate) {
     val withLessons = days.filter { it.realLessons.isNotEmpty() }
 
     if (withLessons.isEmpty()) {
@@ -141,7 +175,19 @@ fun GridLayout(days: List<DaySchedule>, data: LayoutData) {
         return
     }
 
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val headerIndex = remember(withLessons) { headerIndices(withLessons) }
+
+    // См. комментарий в FeedLayout — ключ на withLessons нужен из-за гонки
+    // с асинхронной загрузкой кеша при первом открытии экрана.
+    LaunchedEffect(weekMonday, withLessons) {
+        if (weekMonday != ru.uust.schedule.data.repo.ScheduleRepository.mondayOf(data.today)) return@LaunchedEffect
+        val target = headerIndex.keys.filter { it >= data.today }.minOrNull() ?: return@LaunchedEffect
+        headerIndex[target]?.let { gridState.scrollToItem(it) }
+    }
+
     LazyVerticalGrid(
+        state = gridState,
         columns = GridCells.Fixed(2),
         contentPadding = SidePadding,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -248,7 +294,7 @@ fun WeekSwitcher(
         WeekArrow("‹", "Прошлая неделя") { onShift(-1) }
         Spacer(Modifier.width(10.dp))
 
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 weekRangeLabel(monday),
                 style = MaterialTheme.typography.titleMedium,

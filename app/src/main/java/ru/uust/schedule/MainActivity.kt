@@ -84,6 +84,9 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         vm.refresh(silent = true)
         vm.checkForUpdates(silent = true)
+        // Отдельный рубеж защиты помимо фоновой синхронизации раз в 30 минут:
+        // открыл приложение — виджеты сразу перерисовались на актуальном коде.
+        ru.uust.schedule.widget.WidgetUpdater.updateAll(this)
     }
 }
 

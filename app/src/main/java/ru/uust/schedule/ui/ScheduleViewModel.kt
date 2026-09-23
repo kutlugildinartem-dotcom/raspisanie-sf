@@ -325,6 +325,13 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Даты двух ближайших пар по предмету — для подсказок «к следующей» / «через пару». */
+    fun loadUpcomingLessonDates(subject: String, after: LocalDate, onResult: (List<LocalDate>) -> Unit) {
+        viewModelScope.launch {
+            onResult(repo.upcomingLessonDates(settings.value.groupId, subject, after))
+        }
+    }
+
     fun loadAttachments(date: LocalDate, subject: String, lessonNumber: Int) {
         viewModelScope.launch {
             _ui.value = _ui.value.copy(

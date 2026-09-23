@@ -362,6 +362,29 @@ class ScheduleRepository(
         .minByOrNull { it.first }
         ?.first
 
+    /**
+     * Две ближайшие даты пары по предмету после [after] — «к следующей паре»
+     * и «через пару» (то есть пропустив одну). Кеш смотрит на 60 дней вперёд:
+     * этого хватает даже для предметов раз в две недели, а искать дальше
+     * означало бы синхронно поднимать недели, которых ещё нет.
+     */
+    suspend fun upcomingLessonDates(
+        groupId: Int,
+        subject: String,
+        after: LocalDate,
+    ): List<LocalDate> = withContext(Dispatchers.IO) {
+        db.scheduleDao().daysBetween(groupId, after.toString(), after.plusDays(60).toString())
+            .mapNotNull { entity ->
+                val date = runCatching { LocalDate.parse(entity.isoDate) }.getOrNull()
+                    ?: return@mapNotNull null
+                if (date <= after) return@mapNotNull null
+                if (entity.toDomain().realLessons.none { it.subject == subject }) return@mapNotNull null
+                date
+            }
+            .sorted()
+            .take(2)
+    }
+
     suspend fun attachments(
         groupId: Int,
         date: LocalDate,
