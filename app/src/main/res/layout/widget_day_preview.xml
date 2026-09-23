@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Статичный пример карточки дня для галереи выбора виджета
+  (android:previewLayout, API 31+). Обычный layout, не RemoteViews —
+  здесь можно текст прямо в разметке, без setRemoteAdapter.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/widget_card"
+        android:backgroundTint="#FF1A1D21" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Сегодня"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFFFF" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Пн, 23 сентября"
+            android:textSize="13sp"
+            android:textColor="#FF4FD1C5" />
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="10dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="10dp">
+            <TextView
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:text="09:00"
+                android:textSize="13sp"
+                android:textColor="#FFAAAAAA" />
+            <View
+                android:layout_width="4dp"
+                android:layout_height="20dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/widget_pill"
+                android:backgroundTint="#FF4FD1C5" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Математический анализ"
+                android:textSize="15sp"
+                android:textColor="#FFFFFFFF"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="10dp">
+            <TextView
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:text="10:40"
+                android:textSize="13sp"
+                android:textColor="#FFAAAAAA" />
+            <View
+                android:layout_width="4dp"
+                android:layout_height="20dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/widget_pill"
+                android:backgroundTint="#FFE8B86D" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Программирование"
+                android:textSize="15sp"
+                android:textColor="#FFFFFFFF"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <TextView
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:text="12:20"
+                android:textSize="13sp"
+                android:textColor="#FFAAAAAA" />
+            <View
+                android:layout_width="4dp"
+                android:layout_height="20dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/widget_pill"
+                android:backgroundTint="#FF8FC9A8" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Физика"
+                android:textSize="15sp"
+                android:textColor="#FFFFFFFF"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+    </LinearLayout>
+</FrameLayout>
