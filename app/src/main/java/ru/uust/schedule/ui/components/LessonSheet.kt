@@ -1,7 +1,11 @@
 package ru.uust.schedule.ui.components
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,12 +13,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -28,19 +39,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ru.uust.schedule.data.local.AttachmentEntity
 import ru.uust.schedule.data.local.LessonRecordEntity
 import ru.uust.schedule.domain.DayLogic
+import ru.uust.schedule.domain.HomeworkItem
 import ru.uust.schedule.domain.Lesson
 import ru.uust.schedule.ui.theme.LocalPalette
 import java.time.LocalDate
 
 /**
- * Окно пары: домашка и оценка.
+ * Окно пары: домашка, срок, файлы и оценка.
  *
- * Оценка предлагается только для прошедших дней — ставить её наперёд
- * бессмысленно, а лишний выбор на экране мешает.
+ * Здесь же показан список ближайших заданий по другим предметам — когда
+ * записываешь новое, полезно видеть, что уже висит и на когда.
  */
 @Composable
 fun LessonSheet(
@@ -48,15 +63,37 @@ fun LessonSheet(
     date: LocalDate,
     today: LocalDate,
     record: LessonRecordEntity?,
+    attachments: List<AttachmentEntity>,
+    upcoming: List<HomeworkItem>,
     onDismiss: () -> Unit,
-    onSave: (homework: String, done: Boolean, grade: Int) -> Unit,
+    onAttach: (uri: String, name: String) -> Unit,
+    onDetach: (uri: String) -> Unit,
+    onSave: (homework: String, done: Boolean, grade: Int, dueDate: String) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val context = LocalContext.current
+
     var homework by remember { mutableStateOf(record?.homework.orEmpty()) }
     var done by remember { mutableStateOf(record?.homeworkDone ?: false) }
     var grade by remember { mutableStateOf(record?.grade ?: 0) }
+    var due by remember { mutableStateOf(record?.dueDate.orEmpty()) }
 
     val isPastDay = date <= today
+
+    // Постоянное разрешение обязательно: без него ссылка на файл протухнет
+    // после перезапуска телефона, и вложение станет битым.
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            onAttach(uri.toString(), fileName(context, uri))
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -79,7 +116,7 @@ fun LessonSheet(
             }
         },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = homework,
                     onValueChange = { homework = it },
@@ -88,52 +125,28 @@ fun LessonSheet(
                     placeholder = { Text("Что задали", color = palette.textMuted) },
                     minLines = 3,
                     shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = palette.accent,
-                        unfocusedBorderColor = palette.divider,
-                        focusedTextColor = palette.textPrimary,
-                        unfocusedTextColor = palette.textPrimary,
-                        cursorColor = palette.accent,
-                    ),
+                    colors = textFieldColors(),
                 )
 
                 if (homework.isNotBlank()) {
                     Spacer(Modifier.height(12.dp))
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(13.dp))
-                            .background(if (done) palette.tint(0.14f) else palette.surface)
-                            .quietClickable { done = !done }
-                            .padding(horizontal = 13.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(20.dp)
-                                .clip(CircleShape)
-                                .then(
-                                    if (done) Modifier.background(palette.accent)
-                                    else Modifier.border(2.dp, palette.divider, CircleShape)
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (done) {
-                                Text(
-                                    "✓",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = palette.onAccent,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(11.dp))
-                        Text(
-                            if (done) "Сделано" else "Отметить выполненным",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (done) palette.accent else palette.textSecondary,
-                        )
-                    }
+                    DueDatePicker(
+                        due = due,
+                        lessonDate = date,
+                        today = today,
+                        onPick = { due = it },
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+                    DoneRow(done) { done = !done }
+
+                    Spacer(Modifier.height(14.dp))
+                    AttachmentsSection(
+                        attachments = attachments,
+                        onAdd = { picker.launch(arrayOf("*/*")) },
+                        onOpen = { uri -> openFile(context, uri) },
+                        onRemove = onDetach,
+                    )
                 }
 
                 if (isPastDay) {
@@ -151,10 +164,15 @@ fun LessonSheet(
                         }
                     }
                 }
+
+                if (upcoming.isNotEmpty()) {
+                    Spacer(Modifier.height(18.dp))
+                    UpcomingList(upcoming, today)
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(homework.trim(), done, grade) }) {
+            TextButton(onClick = { onSave(homework.trim(), done, grade, due) }) {
                 Text("Сохранить", color = palette.accent, fontWeight = FontWeight.Bold)
             }
         },
@@ -163,6 +181,220 @@ fun LessonSheet(
         },
     )
 }
+
+/**
+ * Срок сдачи. По умолчанию — «к следующей паре»: так его понимают почти
+ * всегда, поэтому конкретные даты предлагаются рядом, а не вместо.
+ */
+@Composable
+private fun DueDatePicker(
+    due: String,
+    lessonDate: LocalDate,
+    today: LocalDate,
+    onPick: (String) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val options = remember(lessonDate) {
+        buildList {
+            add("" to "К следующей паре")
+            (1..7).forEach { offset ->
+                val date = today.plusDays(offset.toLong())
+                add(date.toString() to DayLogic.title(date, today).lowercase())
+            }
+        }
+    }
+
+    Column {
+        Text("Срок", style = MaterialTheme.typography.labelMedium, color = palette.textMuted)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            options.forEach { (value, label) ->
+                Chip(text = label, selected = due == value, onClick = { onPick(value) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun DoneRow(done: Boolean, onToggle: () -> Unit) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(13.dp))
+            .background(if (done) palette.tint(0.14f) else palette.surface)
+            .quietClickable(onToggle)
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .then(
+                    if (done) Modifier.background(palette.accent)
+                    else Modifier.border(2.dp, palette.divider, CircleShape)
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (done) {
+                Text(
+                    "✓",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.onAccent,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        Spacer(Modifier.width(11.dp))
+        Text(
+            if (done) "Сделано" else "Отметить выполненным",
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (done) palette.accent else palette.textSecondary,
+        )
+    }
+}
+
+@Composable
+private fun AttachmentsSection(
+    attachments: List<AttachmentEntity>,
+    onAdd: () -> Unit,
+    onOpen: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    val palette = LocalPalette.current
+
+    Column {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Файлы", style = MaterialTheme.typography.labelMedium, color = palette.textMuted)
+            Spacer(Modifier.weight(1f))
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(palette.tint(0.14f))
+                    .quietClickable(onAdd)
+                    .padding(horizontal = 11.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Rounded.AttachFile, null,
+                    tint = palette.accent, modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    "Прикрепить",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = palette.accent,
+                )
+            }
+        }
+
+        attachments.forEach { file ->
+            Spacer(Modifier.height(7.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(palette.surface)
+                    .quietClickable { onOpen(file.uri) }
+                    .padding(start = 11.dp, end = 5.dp, top = 9.dp, bottom = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Rounded.AttachFile, null,
+                    tint = palette.textMuted, modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    file.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .quietClickable { onRemove(file.uri) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.Close, "Открепить",
+                        tint = palette.textMuted, modifier = Modifier.size(15.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Что уже задано по другим предметам — контекст, пока записываешь новое. */
+@Composable
+private fun UpcomingList(items: List<HomeworkItem>, today: LocalDate) {
+    val palette = LocalPalette.current
+
+    Column {
+        Text(
+            "Ближайшие задания",
+            style = MaterialTheme.typography.labelMedium,
+            color = palette.textMuted,
+        )
+        Spacer(Modifier.height(8.dp))
+        Column(
+            Modifier.heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            items.forEach { item ->
+                val overdue = item.due < today
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(palette.surface)
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            item.subject,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.textMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            item.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        item.dueLabel(today),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (overdue) palette.danger else palette.accent,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun textFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = LocalPalette.current.accent,
+    unfocusedBorderColor = LocalPalette.current.divider,
+    focusedTextColor = LocalPalette.current.textPrimary,
+    unfocusedTextColor = LocalPalette.current.textPrimary,
+    cursorColor = LocalPalette.current.accent,
+)
 
 @Composable
 private fun GradeOption(label: String, selected: Boolean, onClick: () -> Unit) {
@@ -182,4 +414,23 @@ private fun GradeOption(label: String, selected: Boolean, onClick: () -> Unit) {
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         )
     }
+}
+
+/** Человекочитаемое имя файла из content-URI; если провайдер его не отдал — хвост пути. */
+private fun fileName(context: android.content.Context, uri: android.net.Uri): String {
+    val fromProvider = runCatching {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+        }
+    }.getOrNull()
+    return fromProvider ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Файл"
+}
+
+private fun openFile(context: android.content.Context, uri: String) {
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(android.net.Uri.parse(uri), context.contentResolver.getType(android.net.Uri.parse(uri)))
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
 }

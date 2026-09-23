@@ -17,6 +17,8 @@ import ru.uust.schedule.ui.screens.weekRangeLabel
 import ru.uust.schedule.data.remote.ScheduleApi
 import ru.uust.schedule.data.remote.VersionCompare
 import ru.uust.schedule.domain.DayLogic
+import ru.uust.schedule.domain.HomeworkBucket
+import ru.uust.schedule.domain.HomeworkItem
 import ru.uust.schedule.domain.Lesson
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -417,5 +419,52 @@ class BinaryPatchTest {
         // именно поэтому в UpdateManager результат ещё раз проверяется по sha256
         // ПЕРЕД тем, как попасть в сессию установки.
         assertTrue(sha256(result.toByteArray()) != sha256(new))
+    }
+}
+
+/**
+ * Группировка заданий по сроку: именно она определяет, что человек увидит
+ * первым, когда сядет делать домашку.
+ */
+class HomeworkDeadlineTest {
+
+    private val today = LocalDate.of(2026, 9, 23)
+
+    private fun item(due: LocalDate, done: Boolean = false) = HomeworkItem(
+        subject = "Базы данных",
+        text = "Глава 3",
+        lessonDate = today.minusDays(2),
+        lessonNumber = 2,
+        due = due,
+        done = done,
+        attachments = 0,
+    )
+
+    @Test
+    fun `просроченное идёт в свою корзину, даже если срок был вчера`() {
+        assertEquals(HomeworkBucket.Overdue, item(today.minusDays(1)).bucket(today))
+    }
+
+    @Test
+    fun `сегодня, завтра и неделя разведены по корзинам`() {
+        assertEquals(HomeworkBucket.Today, item(today).bucket(today))
+        assertEquals(HomeworkBucket.Tomorrow, item(today.plusDays(1)).bucket(today))
+        assertEquals(HomeworkBucket.ThisWeek, item(today.plusDays(5)).bucket(today))
+        assertEquals(HomeworkBucket.Later, item(today.plusDays(20)).bucket(today))
+    }
+
+    @Test
+    fun `сделанное уходит вниз независимо от срока`() {
+        // Даже просроченное, но выполненное, не должно кричать красным.
+        assertEquals(HomeworkBucket.Done, item(today.minusDays(5), done = true).bucket(today))
+    }
+
+    @Test
+    fun `подпись срока склоняет дни по-русски`() {
+        assertEquals("сегодня", item(today).dueLabel(today))
+        assertEquals("завтра", item(today.plusDays(1)).dueLabel(today))
+        assertEquals("через 2 дня", item(today.plusDays(2)).dueLabel(today))
+        assertEquals("через 5 дней", item(today.plusDays(5)).dueLabel(today))
+        assertEquals("просрочено на 1 день", item(today.minusDays(1)).dueLabel(today))
     }
 }

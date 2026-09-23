@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.uust.schedule.ui.ScheduleViewModel
 import ru.uust.schedule.ui.components.AppBackground
 import ru.uust.schedule.ui.screens.NavBar
+import ru.uust.schedule.ui.screens.HomeworkScreen
 import ru.uust.schedule.ui.screens.OnboardingScreen
 import ru.uust.schedule.ui.screens.ScheduleScreen
 import ru.uust.schedule.ui.screens.SettingsScreen
@@ -101,6 +102,12 @@ private fun MainShell(vm: ScheduleViewModel) {
                 enter = fadeIn() + slideInVertically { it / 12 },
                 exit = fadeOut() + slideOutVertically { -it / 12 },
             ) { ScheduleScreen(vm) }
+
+            AnimatedVisibility(
+                visible = tab == Tab.Homework,
+                enter = fadeIn() + slideInVertically { it / 12 },
+                exit = fadeOut() + slideOutVertically { -it / 12 },
+            ) { HomeworkScreen(vm) }
 
             AnimatedVisibility(
                 visible = tab == Tab.Subjects,

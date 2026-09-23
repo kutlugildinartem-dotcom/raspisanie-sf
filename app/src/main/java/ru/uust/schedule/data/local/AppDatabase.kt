@@ -13,8 +13,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GroupEntity::class,
         SubjectNoteEntity::class,
         LessonRecordEntity::class,
+        AttachmentEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -22,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun groupDao(): GroupDao
     abstract fun noteDao(): NoteDao
     abstract fun recordDao(): LessonRecordDao
+    abstract fun attachmentDao(): AttachmentDao
 
     companion object {
         /**
@@ -105,6 +107,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Сроки сдачи домашки и прикреплённые к ней файлы. */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE lesson_records ADD COLUMN dueDate TEXT NOT NULL DEFAULT ''"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `homework_attachments` (" +
+                        "`groupId` INTEGER NOT NULL, " +
+                        "`isoDate` TEXT NOT NULL, " +
+                        "`subject` TEXT NOT NULL, " +
+                        "`lessonNumber` INTEGER NOT NULL, " +
+                        "`uri` TEXT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`addedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`groupId`, `isoDate`, `subject`, `lessonNumber`, `uri`))"
+                )
+            }
+        }
+
         @Volatile private var instance: AppDatabase? = null
 
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
@@ -112,7 +134,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "uust_schedule.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
         }
     }
 }

@@ -140,6 +140,31 @@ fun SettingsScreen(vm: ScheduleViewModel) {
             )
         }
 
+        Section("Виджеты") {
+            Text(
+                "Размер текста в виджетах",
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textMuted,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(1f to "Обычный", 1.2f to "Крупный", 1.45f to "Очень крупный")
+                    .forEach { (scale, label) ->
+                        Chip(
+                            text = label,
+                            selected = kotlin.math.abs(settings.widgetTextScale - scale) < 0.01f,
+                            onClick = { vm.updateWidgetTextScale(scale) },
+                        )
+                    }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Оба виджета листаются свайпом вверх-вниз",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textMuted,
+            )
+        }
+
         Section("Виджет «День»") {
             Text(
                 "После этого часа виджет показывает завтрашний день",

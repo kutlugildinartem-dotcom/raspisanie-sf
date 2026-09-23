@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Подложка карточки виджета. Белая: настоящий цвет задаётся во время
+  выполнения через setColorFilter, потому что тема меняется пользователем.
+
+  Раньше здесь был Bitmap, нарисованный в коде, — из-за него виджет вообще
+  не отображался: ~1 МБ на элемент упирался в лимит binder-транзакции.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFFFFFF" />
+    <corners android:radius="24dp" />
+</shape>

@@ -66,6 +66,8 @@ data class AppSettings(
     val lastUpdateCheckAt: Long = 0L,
     /** Версия релиза, которую пользователь явно закрыл — не показывать баннер снова для неё же. */
     val dismissedUpdateVersion: String = "",
+    /** Масштаб текста в виджетах: 1.0 обычный, 1.2 крупный, 1.45 очень крупный. */
+    val widgetTextScale: Float = 1f,
 )
 
 /** Как выглядит главный экран. */

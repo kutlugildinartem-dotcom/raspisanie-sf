@@ -6,16 +6,23 @@ import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.TypedValue
+import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import androidx.compose.ui.graphics.toArgb
 import kotlinx.coroutines.runBlocking
 import ru.uust.schedule.MainActivity
 import ru.uust.schedule.R
+import ru.uust.schedule.data.local.LessonRecordEntity
+import ru.uust.schedule.data.local.RecordKey
+import ru.uust.schedule.data.local.SubjectNoteEntity
+import ru.uust.schedule.data.prefs.AppTheme
 import ru.uust.schedule.data.prefs.SettingsStore
 import ru.uust.schedule.data.repo.ScheduleRepository
 import ru.uust.schedule.domain.DayLogic
 import ru.uust.schedule.domain.DaySchedule
+import ru.uust.schedule.domain.Lesson
 import ru.uust.schedule.ui.theme.Palette
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -28,9 +35,9 @@ import java.time.LocalDateTime
  * отдаёт ей вертикальный свайп. Горизонтальный свайп в виджете недоступен
  * в принципе, его забирает перелистывание страниц рабочего стола.
  *
- * Дни лежат готовым списком [DAYS_BACK]..[DAYS_FORWARD] вокруг сегодняшнего,
- * а StackView сам держит позицию — поэтому «налистанное» состояние не нужно
- * хранить отдельно.
+ * Все подложки рисуются XML-фигурами с тонированием, а не Bitmap'ами.
+ * Bitmap на элемент коллекции весил около мегабайта и упирался в лимит
+ * binder-транзакции — из-за этого виджет не показывал вообще ничего.
  */
 class DayWidgetReceiver : AppWidgetProvider() {
 
@@ -108,15 +115,16 @@ private class DayStackFactory(
     private data class Item(val date: LocalDate, val day: DaySchedule?)
 
     private var items: List<Item> = emptyList()
-    private var palette: Palette = Palette.from(ru.uust.schedule.data.prefs.AppTheme.Default)
-    private var theme = ru.uust.schedule.data.prefs.AppTheme.Default
-    private var notes: Map<String, ru.uust.schedule.data.local.SubjectNoteEntity> = emptyMap()
-    private var records: Map<ru.uust.schedule.data.local.RecordKey, ru.uust.schedule.data.local.LessonRecordEntity> = emptyMap()
+    private var palette: Palette = Palette.from(AppTheme.Default)
+    private var notes: Map<String, SubjectNoteEntity> = emptyMap()
+    private var records: Map<RecordKey, LessonRecordEntity> = emptyMap()
     private var showTeacher = true
     private var maxRows = 4
     private var compact = false
+    private var textScale = 1f
     private var today: LocalDate = LocalDate.now()
     private var nowMinutes = 0
+    private var failure: String? = null
 
     override fun onCreate() = Unit
 
@@ -142,9 +150,9 @@ private class DayStackFactory(
         val config = store.widgetConfig(appWidgetId)
         val groupId = if (config.groupIdOverride > 0) config.groupIdOverride else settings.groupId
 
-        theme = settings.theme
-        palette = Palette.from(theme)
+        palette = Palette.from(settings.theme)
         showTeacher = config.showTeacher
+        textScale = settings.widgetTextScale
 
         val now = LocalDateTime.now()
         today = now.toLocalDate()
@@ -181,24 +189,23 @@ private class DayStackFactory(
     }
 
     /**
-     * Высота виджета в dp -> сколько строк поместится.
-     * Заголовок и отступы занимают примерно 62dp, полная строка — 40dp,
-     * сжатая — 26dp.
+     * Высота виджета в dp -> сколько строк поместится. Масштаб текста
+     * увеличивает и высоту строки, иначе при крупном шрифте строки
+     * наезжали бы друг на друга.
      */
     private fun measureRows() {
         val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(appWidgetId)
         val heightDp = options
             ?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
             ?.takeIf { it > 0 }
-            ?: 160
+            ?: 180
 
         compact = heightDp < 200
-        val rowHeight = if (compact) 26 else 40
-        val available = (heightDp - 62).coerceAtLeast(rowHeight)
+        val rowHeight = ((if (compact) 32 else 46) * textScale).toInt().coerceAtLeast(20)
+        val header = (74 * textScale).toInt()
+        val available = (heightDp - header).coerceAtLeast(rowHeight)
         maxRows = (available / rowHeight).coerceIn(1, 8)
     }
-
-    private var failure: String? = null
 
     // Никогда не возвращаем 0: пустой адаптер оставляет StackView в «Загрузке».
     override fun getCount(): Int = items.size.coerceAtLeast(1)
@@ -206,18 +213,22 @@ private class DayStackFactory(
     /** Заглушка вместо системного «Загрузка…» — в стиле остальных карточек. */
     override fun getLoadingView(): RemoteViews = messageCard("Загружаем расписание")
 
-    private fun messageCard(text: String): RemoteViews {
+    private fun newCard(): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_day_item)
-        views.setImageViewBitmap(
-            R.id.item_bg,
-            WidgetBackground.render(BG_WIDTH, BG_HEIGHT, theme, BG_CORNER),
-        )
+        // Тонирование белой фигуры вместо Bitmap: тот же вид, но в транзакцию
+        // уходит идентификатор ресурса и один int, а не мегабайт пикселей.
+        views.setInt(R.id.item_bg, "setColorFilter", palette.surface.toArgb())
+        return views
+    }
+
+    private fun messageCard(text: String): RemoteViews {
+        val views = newCard()
         views.setTextViewText(R.id.item_title, "RUUNIT")
         views.setTextColor(R.id.item_title, palette.textPrimary.toArgb())
         views.setTextViewText(R.id.item_date, "")
         views.setTextViewText(R.id.item_count, "")
-        views.setViewVisibility(R.id.item_rows, android.view.View.GONE)
-        views.setViewVisibility(R.id.item_empty, android.view.View.VISIBLE)
+        views.setViewVisibility(R.id.item_rows, View.GONE)
+        views.setViewVisibility(R.id.item_empty, View.VISIBLE)
         views.setTextViewText(R.id.item_empty, text)
         views.setTextColor(R.id.item_empty, palette.textSecondary.toArgb())
         views.setOnClickFillInIntent(R.id.item_bg, Intent())
@@ -229,36 +240,39 @@ private class DayStackFactory(
         val item = items.getOrNull(position)
             ?: return messageCard("Откройте приложение и выберите группу")
 
-        val views = RemoteViews(context.packageName, R.layout.widget_day_item)
+        val views = newCard()
         val lessons = item.day?.realLessons.orEmpty()
-
-        views.setImageViewBitmap(
-            R.id.item_bg,
-            WidgetBackground.render(BG_WIDTH, BG_HEIGHT, theme, BG_CORNER),
-        )
 
         views.setTextViewText(R.id.item_title, DayLogic.title(item.date, today))
         views.setTextColor(R.id.item_title, palette.textPrimary.toArgb())
+        views.setTextSize(R.id.item_title, 22f)
+
         views.setTextViewText(
             R.id.item_date,
             DayLogic.shortDay(item.date) + ", " + DayLogic.formatDate(item.date),
         )
         views.setTextColor(R.id.item_date, palette.accent.toArgb())
+        views.setTextSize(R.id.item_date, 13f)
 
-        views.setTextViewText(R.id.item_count, if (lessons.isEmpty()) "" else "${lessons.size}")
+        views.setTextViewText(
+            R.id.item_count,
+            if (lessons.isEmpty()) "" else "${lessons.size} пар",
+        )
         views.setTextColor(R.id.item_count, palette.textMuted.toArgb())
+        views.setTextSize(R.id.item_count, 13f)
 
         if (lessons.isEmpty()) {
-            views.setViewVisibility(R.id.item_rows, android.view.View.GONE)
-            views.setViewVisibility(R.id.item_empty, android.view.View.VISIBLE)
+            views.setViewVisibility(R.id.item_rows, View.GONE)
+            views.setViewVisibility(R.id.item_empty, View.VISIBLE)
             views.setTextViewText(
                 R.id.item_empty,
                 if (item.day == null) "Нет данных" else "Пар нет",
             )
             views.setTextColor(R.id.item_empty, palette.textSecondary.toArgb())
+            views.setTextSize(R.id.item_empty, 15f)
         } else {
-            views.setViewVisibility(R.id.item_empty, android.view.View.GONE)
-            views.setViewVisibility(R.id.item_rows, android.view.View.VISIBLE)
+            views.setViewVisibility(R.id.item_empty, View.GONE)
+            views.setViewVisibility(R.id.item_rows, View.VISIBLE)
             fillRows(views, item.date, lessons)
         }
 
@@ -266,21 +280,22 @@ private class DayStackFactory(
         return views
     }
 
-    private fun fillRows(
-        views: RemoteViews,
-        date: LocalDate,
-        lessons: List<ru.uust.schedule.domain.Lesson>,
-    ) {
+    /** Размер шрифта с учётом выбранного пользователем масштаба виджета. */
+    private fun RemoteViews.setTextSize(viewId: Int, baseSp: Float) {
+        setTextViewTextSize(viewId, TypedValue.COMPLEX_UNIT_SP, baseSp * textScale)
+    }
+
+    private fun fillRows(views: RemoteViews, date: LocalDate, lessons: List<Lesson>) {
         val shown = lessons.take(maxRows)
 
         ROW_IDS.forEachIndexed { index, ids ->
             val lesson = shown.getOrNull(index)
             if (lesson == null) {
-                views.setViewVisibility(ids.row, android.view.View.GONE)
+                views.setViewVisibility(ids.row, View.GONE)
                 return@forEachIndexed
             }
 
-            views.setViewVisibility(ids.row, android.view.View.VISIBLE)
+            views.setViewVisibility(ids.row, View.VISIBLE)
 
             val isNow = date == today && lesson.startMin >= 0 &&
                 nowMinutes >= lesson.startMin && nowMinutes < lesson.endMin
@@ -289,31 +304,22 @@ private class DayStackFactory(
             val subjectColor = Palette.subjectColor(lesson.subject, palette, note?.hue ?: -1)
 
             views.setTextViewText(ids.time, lesson.timeRange.take(5))
-            views.setTextColor(
-                ids.time,
-                (if (isNow) palette.accent else palette.textMuted).toArgb(),
-            )
+            views.setTextColor(ids.time, (if (isNow) palette.accent else palette.textMuted).toArgb())
+            views.setTextSize(ids.time, 13f)
 
-            views.setImageViewBitmap(
-                ids.pill,
-                WidgetBackground.pill(PILL_W, PILL_H, subjectColor.toArgb(), PILL_CORNER),
-            )
+            views.setInt(ids.pill, "setColorFilter", subjectColor.toArgb())
 
             views.setTextViewText(ids.subject, lesson.subject)
             views.setTextColor(
                 ids.subject,
                 (if (isPast && !isNow) palette.textMuted else palette.textPrimary).toArgb(),
             )
+            views.setTextSize(ids.subject, 15f)
 
             // Невыполненная домашка вытесняет всё остальное: ради неё в виджет и смотрят.
             // Точка перед текстом — тот же ненавязчивый маркер, что и в приложении.
-            val record = records[
-                ru.uust.schedule.data.local.RecordKey(
-                    date.toString(), lesson.subject, lesson.number,
-                )
-            ] ?: records[
-                ru.uust.schedule.data.local.RecordKey(date.toString(), lesson.subject, 0)
-            ]
+            val record = records[RecordKey(date.toString(), lesson.subject, lesson.number)]
+                ?: records[RecordKey(date.toString(), lesson.subject, 0)]
             val meta = when {
                 record != null && record.hasHomework && !record.homeworkDone ->
                     "• " + record.homework
@@ -328,11 +334,12 @@ private class DayStackFactory(
             }
 
             if (compact || meta.isBlank()) {
-                views.setViewVisibility(ids.meta, android.view.View.GONE)
+                views.setViewVisibility(ids.meta, View.GONE)
             } else {
-                views.setViewVisibility(ids.meta, android.view.View.VISIBLE)
+                views.setViewVisibility(ids.meta, View.VISIBLE)
                 views.setTextViewText(ids.meta, meta)
                 views.setTextColor(ids.meta, palette.textMuted.toArgb())
+                views.setTextSize(ids.meta, 12f)
             }
         }
     }
@@ -344,17 +351,15 @@ private class DayStackFactory(
         items = emptyList()
     }
 
-    private data class RowIds(val row: Int, val time: Int, val pill: Int, val subject: Int, val meta: Int)
+    private data class RowIds(
+        val row: Int,
+        val time: Int,
+        val pill: Int,
+        val subject: Int,
+        val meta: Int,
+    )
 
     companion object {
-        /** Подложка рисуется один раз в фиксированном разрешении и растягивается по месту. */
-        private const val BG_WIDTH = 600
-        private const val BG_HEIGHT = 420
-        private const val BG_CORNER = 46f
-        private const val PILL_W = 8
-        private const val PILL_H = 64
-        private const val PILL_CORNER = 4f
-
         private val ROW_IDS = listOf(
             RowIds(R.id.row_1, R.id.row_time_1, R.id.row_pill_1, R.id.row_subject_1, R.id.row_meta_1),
             RowIds(R.id.row_2, R.id.row_time_2, R.id.row_pill_2, R.id.row_subject_2, R.id.row_meta_2),

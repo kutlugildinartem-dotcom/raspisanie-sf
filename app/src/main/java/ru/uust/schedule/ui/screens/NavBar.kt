@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
@@ -33,6 +34,7 @@ import ru.uust.schedule.ui.theme.LocalPalette
 
 enum class Tab(val title: String, val icon: ImageVector) {
     Schedule("Расписание", Icons.Rounded.CalendarToday),
+    Homework("Задания", Icons.Rounded.Checklist),
     Subjects("Предметы", Icons.Rounded.MenuBook),
     Settings("Настройки", Icons.Rounded.Tune),
 }
@@ -72,11 +74,11 @@ fun NavBar(current: Tab, onSelect: (Tab) -> Unit) {
                         .clip(RoundedCornerShape(19.dp))
                         .background(if (selected) palette.accent else Color.Transparent)
                         .quietClickable { onSelect(tab) }
-                        .padding(vertical = 11.dp),
+                        .padding(vertical = 11.dp, horizontal = 2.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(tab.icon, tab.title, tint = tint, modifier = Modifier.size(19.dp))
+                    Icon(tab.icon, tab.title, tint = tint, modifier = Modifier.size(18.dp))
                     if (selected) {
                         Spacer(Modifier.size(7.dp))
                         Text(

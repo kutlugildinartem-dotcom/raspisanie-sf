@@ -1,24 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Виджет «День». StackView — единственная коллекция RemoteViews, которая
-  сама обрабатывает свайп пальцем: лаунчер отдаёт ей вертикальный жест.
-
-  Запасная надпись имеет явный цвет: по умолчанию текст в виджете чёрный,
-  а на тёмных обоях это выглядит как пустой виджет.
--->
+<!-- Виджет «Неделя»: недели листаются свайпом через StackView. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
     <StackView
-        android:id="@+id/day_stack"
+        android:id="@+id/week_stack"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:loopViews="true"
         android:gravity="center" />
 
     <TextView
-        android:id="@+id/day_empty"
+        android:id="@+id/week_stack_empty"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:gravity="center"

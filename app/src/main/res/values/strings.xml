@@ -3,5 +3,4 @@
     <string name="app_name">RUUNIT</string>
     <string name="day_widget_description">RUUNIT · день</string>
     <string name="week_widget_description">RUUNIT · неделя</string>
-    <string name="note_widget_description">RUUNIT · заметки</string>
 </resources>

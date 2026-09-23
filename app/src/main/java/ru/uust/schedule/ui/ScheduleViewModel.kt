@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import ru.uust.schedule.data.local.AttachmentEntity
 import ru.uust.schedule.data.local.LessonRecordEntity
 import ru.uust.schedule.data.local.RecordKey
 import ru.uust.schedule.data.local.SubjectNoteEntity
@@ -25,6 +26,7 @@ import ru.uust.schedule.data.update.UpdateState
 import ru.uust.schedule.domain.DayLogic
 import ru.uust.schedule.domain.DaySchedule
 import ru.uust.schedule.domain.Group
+import ru.uust.schedule.domain.HomeworkItem
 import ru.uust.schedule.widget.WidgetUpdater
 import ru.uust.schedule.work.SyncScheduler
 import java.time.LocalDate
@@ -284,6 +286,7 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         homework: String,
         done: Boolean,
         grade: Int,
+        dueDate: String = "",
     ) {
         viewModelScope.launch {
             repo.saveRecord(
@@ -295,9 +298,73 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
                     homework = homework,
                     homeworkDone = done,
                     grade = grade,
+                    dueDate = dueDate,
                 )
             )
             loadDay(settings.value.groupId, _selectedDate.value)
+            WidgetUpdater.updateAll(getApplication())
+        }
+    }
+
+    fun loadHomework(onResult: (List<HomeworkItem>) -> Unit) {
+        viewModelScope.launch { onResult(repo.homework(settings.value.groupId)) }
+    }
+
+    /** Галочка в списке заданий: меняем только признак выполнения, остальное не трогаем. */
+    fun toggleHomeworkDone(item: HomeworkItem, onDone: () -> Unit) {
+        viewModelScope.launch {
+            val groupId = settings.value.groupId
+            val existing = repo.recordsFor(groupId, item.lessonDate)[
+                RecordKey(item.lessonDate.toString(), item.subject, item.lessonNumber)
+            ] ?: return@launch
+
+            repo.saveRecord(existing.copy(homeworkDone = !existing.homeworkDone))
+            loadDay(groupId, _selectedDate.value)
+            WidgetUpdater.updateAll(getApplication())
+            onDone()
+        }
+    }
+
+    fun loadAttachments(date: LocalDate, subject: String, lessonNumber: Int) {
+        viewModelScope.launch {
+            _ui.value = _ui.value.copy(
+                attachments = repo.attachments(settings.value.groupId, date, subject, lessonNumber),
+            )
+        }
+    }
+
+    fun attachFile(
+        date: LocalDate,
+        subject: String,
+        lessonNumber: Int,
+        uri: String,
+        name: String,
+    ) {
+        viewModelScope.launch {
+            repo.addAttachment(
+                AttachmentEntity(
+                    groupId = settings.value.groupId,
+                    isoDate = date.toString(),
+                    subject = subject,
+                    lessonNumber = lessonNumber,
+                    uri = uri,
+                    name = name,
+                )
+            )
+            loadAttachments(date, subject, lessonNumber)
+        }
+    }
+
+    fun detachFile(date: LocalDate, subject: String, lessonNumber: Int, uri: String) {
+        viewModelScope.launch {
+            repo.removeAttachment(settings.value.groupId, uri)
+            loadAttachments(date, subject, lessonNumber)
+        }
+    }
+
+    fun updateWidgetTextScale(scale: Float) {
+        viewModelScope.launch {
+            store.update { it.copy(widgetTextScale = scale) }
             WidgetUpdater.updateAll(getApplication())
         }
     }
@@ -343,6 +410,7 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         val weekDays: List<DaySchedule> = emptyList(),
         val weekMonday: LocalDate = ScheduleRepository.mondayOf(LocalDate.now()),
         val rangeRecords: Map<RecordKey, LessonRecordEntity> = emptyMap(),
+        val attachments: List<AttachmentEntity> = emptyList(),
         val calendarOpen: Boolean = false,
         val calendarMonth: YearMonth = YearMonth.now(),
         val lessonCounts: Map<LocalDate, Int> = emptyMap(),

@@ -87,33 +87,44 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     val updateState by vm.updateState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var sheetTarget by remember { mutableStateOf<Pair<LocalDate, ru.uust.schedule.domain.Lesson>?>(null) }
+    var upcomingHomework by remember {
+        mutableStateOf<List<ru.uust.schedule.domain.HomeworkItem>>(emptyList())
+    }
 
     val today = LocalDate.now()
     val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
 
-    // Открывает календарь при потягивании вниз в любом месте контента (когда список
-    // уже докручен до верха и тянуть дальше некуда) и задвигает его при потягивании
-    // вверх — тот же приём, что у pull-to-refresh, только без спиннера.
+    // Жест календаря: тянешь вниз — выезжает, тянешь вверх — прячется.
+    //
+    // Два правила, без которых жест ощущается случайным:
+    //
+    // 1. Пока список сам прокручивался в этом жесте, календарь не открывается.
+    //    Иначе, докрутив список до верха одним движением, ты получал бы календарь
+    //    в лицо — хотя просто листал расписание. Нужно отпустить палец и потянуть
+    //    ещё раз, уже от самого верха.
+    // 2. Сработавший жест доедает сам себя до конца. Иначе после закрытия
+    //    календаря остаток того же движения уезжал бы в список, и экран
+    //    продолжал бы листаться сам по себе.
     var pullAccum by remember { mutableStateOf(0f) }
+    var listScrolled by remember { mutableStateOf(false) }
+    var gestureHandled by remember { mutableStateOf(false) }
+
     val calendarConnection = remember {
         object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
-            override fun onPostScroll(
-                consumed: androidx.compose.ui.geometry.Offset,
+
+            override fun onPreScroll(
                 available: androidx.compose.ui.geometry.Offset,
                 source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
             ): androidx.compose.ui.geometry.Offset {
-                if (!ui.calendarOpen && available.y > 0f) {
-                    pullAccum += available.y
-                    if (pullAccum > 90f) {
-                        vm.toggleCalendar()
-                        pullAccum = 0f
-                    }
-                    return available.copy(x = 0f)
-                }
+                if (gestureHandled) return available.copy(x = 0f)
+
+                // Закрытие ловим ДО списка: иначе он успевает уехать под пальцем,
+                // и календарь закрывается уже на прокрученном экране.
                 if (ui.calendarOpen && available.y < 0f) {
                     pullAccum += available.y
-                    if (pullAccum < -70f) {
+                    if (pullAccum < -60f) {
                         vm.toggleCalendar()
+                        gestureHandled = true
                         pullAccum = 0f
                     }
                     return available.copy(x = 0f)
@@ -121,11 +132,46 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                 return androidx.compose.ui.geometry.Offset.Zero
             }
 
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+            ): androidx.compose.ui.geometry.Offset {
+                if (gestureHandled) return available.copy(x = 0f)
+
+                if (consumed.y != 0f) {
+                    // Список прокрутился сам — значит жест начался не от края.
+                    listScrolled = true
+                    pullAccum = 0f
+                    return androidx.compose.ui.geometry.Offset.Zero
+                }
+
+                if (!ui.calendarOpen && !listScrolled && available.y > 0f) {
+                    pullAccum += available.y
+                    if (pullAccum > 80f) {
+                        vm.toggleCalendar()
+                        gestureHandled = true
+                        pullAccum = 0f
+                    }
+                    return available.copy(x = 0f)
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override suspend fun onPreFling(
+                available: androidx.compose.ui.unit.Velocity,
+            ): androidx.compose.ui.unit.Velocity =
+                // Гасим инерцию сработавшего жеста, чтобы экран замер на месте.
+                if (gestureHandled) available else androidx.compose.ui.unit.Velocity.Zero
+
             override suspend fun onPostFling(
                 consumed: androidx.compose.ui.unit.Velocity,
                 available: androidx.compose.ui.unit.Velocity,
             ): androidx.compose.ui.unit.Velocity {
+                // Палец отпущен — начинаем следующий жест с чистого листа.
                 pullAccum = 0f
+                listScrolled = false
+                gestureHandled = false
                 return androidx.compose.ui.unit.Velocity.Zero
             }
         }
@@ -291,6 +337,13 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     }
 
     sheetTarget?.let { (sheetDate, lesson) ->
+        // Вложения и список ближайших заданий подтягиваются под конкретную пару,
+        // как только окно открылось.
+        LaunchedEffect(sheetDate, lesson.number) {
+            vm.loadAttachments(sheetDate, lesson.subject, lesson.number)
+            vm.loadHomework { upcomingHomework = it }
+        }
+
         LessonSheet(
             lesson = lesson,
             date = sheetDate,
@@ -300,9 +353,20 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                     sheetDate.toString(), lesson.subject, lesson.number,
                 )
             ],
+            attachments = ui.attachments,
+            // Своё же задание в подсказке не показываем — оно и так в поле выше.
+            upcoming = upcomingHomework.filterNot {
+                it.done || (it.subject == lesson.subject && it.lessonDate == sheetDate)
+            }.take(6),
             onDismiss = { sheetTarget = null },
-            onSave = { homework, done, grade ->
-                vm.saveRecord(sheetDate, lesson.subject, lesson.number, homework, done, grade)
+            onAttach = { uri, name ->
+                vm.attachFile(sheetDate, lesson.subject, lesson.number, uri, name)
+            },
+            onDetach = { uri -> vm.detachFile(sheetDate, lesson.subject, lesson.number, uri) },
+            onSave = { homework, done, grade, dueDate ->
+                vm.saveRecord(
+                    sheetDate, lesson.subject, lesson.number, homework, done, grade, dueDate,
+                )
                 sheetTarget = null
             },
         )

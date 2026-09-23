@@ -99,3 +99,27 @@ interface LessonRecordDao {
     )
     suspend fun delete(groupId: Int, isoDate: String, subject: String, lessonNumber: Int)
 }
+
+@Dao
+interface AttachmentDao {
+
+    @Upsert
+    suspend fun upsert(attachment: AttachmentEntity)
+
+    @Query(
+        "SELECT * FROM homework_attachments WHERE groupId = :groupId AND isoDate = :isoDate " +
+            "AND subject = :subject AND lessonNumber = :lessonNumber ORDER BY addedAt"
+    )
+    suspend fun forLesson(
+        groupId: Int,
+        isoDate: String,
+        subject: String,
+        lessonNumber: Int,
+    ): List<AttachmentEntity>
+
+    @Query("SELECT * FROM homework_attachments WHERE groupId = :groupId")
+    suspend fun all(groupId: Int): List<AttachmentEntity>
+
+    @Query("DELETE FROM homework_attachments WHERE uri = :uri AND groupId = :groupId")
+    suspend fun delete(groupId: Int, uri: String)
+}

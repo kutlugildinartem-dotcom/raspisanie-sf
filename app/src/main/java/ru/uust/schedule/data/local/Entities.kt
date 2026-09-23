@@ -66,6 +66,12 @@ data class LessonRecordEntity(
     val homeworkDone: Boolean = false,
     /** Оценка 1..5; 0 — не выставлена. */
     val grade: Int = 0,
+    /**
+     * Срок сдачи в формате yyyy-MM-dd. Пусто — «к следующей паре»:
+     * так задают срок чаще всего, и заставлять выбирать дату каждый раз
+     * значит мешать там, где ответ и так очевиден.
+     */
+    val dueDate: String = "",
     val updatedAt: Long = 0L,
 ) {
     val hasHomework: Boolean get() = homework.isNotBlank()
@@ -77,3 +83,23 @@ data class RecordKey(val isoDate: String, val subject: String, val lessonNumber:
 
 val LessonRecordEntity.key: RecordKey
     get() = RecordKey(isoDate, subject, lessonNumber)
+
+/**
+ * Файл, приложенный к домашнему заданию.
+ *
+ * Хранится не копия файла, а его content-URI с постоянным разрешением:
+ * копия занимала бы место и устаревала бы, стоит автору поправить документ.
+ */
+@Entity(
+    tableName = "homework_attachments",
+    primaryKeys = ["groupId", "isoDate", "subject", "lessonNumber", "uri"],
+)
+data class AttachmentEntity(
+    val groupId: Int,
+    val isoDate: String,
+    val subject: String,
+    val lessonNumber: Int,
+    val uri: String,
+    val name: String,
+    val addedAt: Long = 0L,
+)

@@ -9,6 +9,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import ru.uust.schedule.data.local.AppDatabase
 import ru.uust.schedule.data.local.DayEntity
+import ru.uust.schedule.data.local.AttachmentEntity
 import ru.uust.schedule.data.local.GroupEntity
 import ru.uust.schedule.data.local.LessonRecordEntity
 import ru.uust.schedule.data.local.RecordKey
@@ -19,6 +20,7 @@ import ru.uust.schedule.data.remote.ScheduleApi
 import ru.uust.schedule.domain.DaySchedule
 import ru.uust.schedule.domain.FACULTIES
 import ru.uust.schedule.domain.Group
+import ru.uust.schedule.domain.HomeworkItem
 import ru.uust.schedule.domain.Lesson
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -298,6 +300,83 @@ class ScheduleRepository(
         } else {
             db.recordDao().upsert(record.copy(updatedAt = System.currentTimeMillis()))
         }
+    }
+
+    // --- список заданий и вложения ---
+
+    /**
+     * Все задания группы со сроками, отсортированные по сроку.
+     *
+     * Срок по умолчанию — следующая пара по этому же предмету после дня, когда
+     * задали: именно так его и понимают, а заставлять выбирать дату каждый раз
+     * значит мешать там, где ответ очевиден.
+     */
+    suspend fun homework(groupId: Int): List<HomeworkItem> = withContext(Dispatchers.IO) {
+        if (groupId == 0) return@withContext emptyList()
+
+        val records = db.recordDao().between(groupId, "0000-00-00", "9999-99-99")
+            .filter { it.homework.isNotBlank() }
+        if (records.isEmpty()) return@withContext emptyList()
+
+        val attachmentCounts = db.attachmentDao().all(groupId)
+            .groupingBy { RecordKey(it.isoDate, it.subject, it.lessonNumber) }
+            .eachCount()
+
+        val days = db.scheduleDao().daysBetween(groupId, "0000-00-00", "9999-99-99")
+            .mapNotNull { entity ->
+                val date = runCatching { LocalDate.parse(entity.isoDate) }.getOrNull()
+                    ?: return@mapNotNull null
+                date to entity.toDomain()
+            }
+
+        records.mapNotNull { record ->
+            val lessonDate = runCatching { LocalDate.parse(record.isoDate) }.getOrNull()
+                ?: return@mapNotNull null
+
+            val due = record.dueDate.takeIf { it.isNotBlank() }
+                ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                ?: nextLessonDate(days, record.subject, lessonDate)
+                ?: lessonDate.plusDays(7)
+
+            HomeworkItem(
+                subject = record.subject,
+                text = record.homework,
+                lessonDate = lessonDate,
+                lessonNumber = record.lessonNumber,
+                due = due,
+                done = record.homeworkDone,
+                attachments = attachmentCounts[record.key] ?: 0,
+            )
+        }.sortedWith(compareBy({ it.done }, { it.due }))
+    }
+
+    /** Ближайшая пара по предмету после [after] — естественный срок сдачи. */
+    private fun nextLessonDate(
+        days: List<Pair<LocalDate, DaySchedule>>,
+        subject: String,
+        after: LocalDate,
+    ): LocalDate? = days
+        .filter { (date, day) ->
+            date > after && day.realLessons.any { it.subject == subject }
+        }
+        .minByOrNull { it.first }
+        ?.first
+
+    suspend fun attachments(
+        groupId: Int,
+        date: LocalDate,
+        subject: String,
+        lessonNumber: Int,
+    ): List<AttachmentEntity> = withContext(Dispatchers.IO) {
+        db.attachmentDao().forLesson(groupId, date.toString(), subject, lessonNumber)
+    }
+
+    suspend fun addAttachment(attachment: AttachmentEntity) = withContext(Dispatchers.IO) {
+        db.attachmentDao().upsert(attachment.copy(addedAt = System.currentTimeMillis()))
+    }
+
+    suspend fun removeAttachment(groupId: Int, uri: String) = withContext(Dispatchers.IO) {
+        db.attachmentDao().delete(groupId, uri)
     }
 
     // --- заметки ---
