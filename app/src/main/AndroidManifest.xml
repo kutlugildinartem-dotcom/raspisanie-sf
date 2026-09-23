@@ -7,6 +7,11 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Установка обновления поверх текущей версии, без удаления приложения -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Кнопка в настройках «Разрешить работу без ограничений» — на некоторых
+         прошивках (Samsung, Xiaomi) система убивает фоновую службу виджета
+         из экономии батареи, и без этого разрешения виджет вечно висит
+         на «Загрузка…», не по вине кода. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".App"

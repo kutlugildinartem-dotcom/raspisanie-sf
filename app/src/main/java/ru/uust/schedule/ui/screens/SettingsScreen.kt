@@ -163,6 +163,43 @@ fun SettingsScreen(vm: ScheduleViewModel) {
                 style = MaterialTheme.typography.labelSmall,
                 color = palette.textMuted,
             )
+
+            Spacer(Modifier.height(16.dp))
+            val batteryContext = LocalContext.current
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Виджет не обновляется?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.textPrimary,
+                    )
+                    Text(
+                        // На Samsung, Xiaomi и похожих прошивках система сама
+                        // останавливает фоновую службу, которая кормит виджет
+                        // данными, из экономии батареи — виджет зависает
+                        // на «Загрузка…» не из-за бага, а из-за этого запрета.
+                        "Некоторые прошивки сами останавливают фоновую службу виджета, " +
+                            "экономя батарею — разрешите работу без ограничений",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textMuted,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                ActionButton("Разрешить") {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        android.net.Uri.parse("package:${batteryContext.packageName}"),
+                    )
+                    runCatching { batteryContext.startActivity(intent) }
+                        .onFailure {
+                            val fallback = android.content.Intent(
+                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.parse("package:${batteryContext.packageName}"),
+                            )
+                            runCatching { batteryContext.startActivity(fallback) }
+                        }
+                }
+            }
         }
 
         Section("Виджет «День»") {
