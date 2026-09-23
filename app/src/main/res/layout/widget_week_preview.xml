@@ -4,11 +4,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <View
+    <ImageView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/widget_card"
-        android:backgroundTint="#FF1A1D21" />
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_card"
+        android:tint="#FF1A1D21"
+        android:contentDescription="@null" />
 
     <LinearLayout
         android:layout_width="match_parent"

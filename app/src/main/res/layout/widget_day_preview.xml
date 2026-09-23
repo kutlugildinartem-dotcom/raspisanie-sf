@@ -1,18 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Статичный пример карточки дня для галереи выбора виджета
-  (android:previewLayout, API 31+). Обычный layout, не RemoteViews —
-  здесь можно текст прямо в разметке, без setRemoteAdapter.
+  (android:previewLayout, API 31+).
+
+  Рендерится тем же ограниченным инфлейтером, что и RemoteViews — обычный
+  <View> в список разрешённых классов не входит и валит инфлейт с ошибкой
+  «Не удалось обновить виджет». Поэтому подложка и цветные метки — ImageView
+  с src, как в настоящих widget_day_item/widget_week_item, а не View с
+  background/backgroundTint.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <View
+    <ImageView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/widget_card"
-        android:backgroundTint="#FF1A1D21" />
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_card"
+        android:tint="#FF1A1D21"
+        android:contentDescription="@null" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -54,12 +61,14 @@
                 android:text="09:00"
                 android:textSize="13sp"
                 android:textColor="#FFAAAAAA" />
-            <View
+            <ImageView
                 android:layout_width="4dp"
                 android:layout_height="20dp"
                 android:layout_marginEnd="8dp"
-                android:background="@drawable/widget_pill"
-                android:backgroundTint="#FF4FD1C5" />
+                android:scaleType="fitXY"
+                android:src="@drawable/widget_pill"
+                android:tint="#FF4FD1C5"
+                android:contentDescription="@null" />
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -83,12 +92,14 @@
                 android:text="10:40"
                 android:textSize="13sp"
                 android:textColor="#FFAAAAAA" />
-            <View
+            <ImageView
                 android:layout_width="4dp"
                 android:layout_height="20dp"
                 android:layout_marginEnd="8dp"
-                android:background="@drawable/widget_pill"
-                android:backgroundTint="#FFE8B86D" />
+                android:scaleType="fitXY"
+                android:src="@drawable/widget_pill"
+                android:tint="#FFE8B86D"
+                android:contentDescription="@null" />
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -111,12 +122,14 @@
                 android:text="12:20"
                 android:textSize="13sp"
                 android:textColor="#FFAAAAAA" />
-            <View
+            <ImageView
                 android:layout_width="4dp"
                 android:layout_height="20dp"
                 android:layout_marginEnd="8dp"
-                android:background="@drawable/widget_pill"
-                android:backgroundTint="#FF8FC9A8" />
+                android:scaleType="fitXY"
+                android:src="@drawable/widget_pill"
+                android:tint="#FF8FC9A8"
+                android:contentDescription="@null" />
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
