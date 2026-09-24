@@ -216,11 +216,6 @@ private fun DueDatePicker(
             // Пока расписание для этого предмета не подгружено — сработает,
             // даты появятся сами при следующей синхронизации.
             if (upcomingLessonDates.isEmpty()) add("" to "К следующей паре")
-
-            (1..7).forEach { offset ->
-                val date = today.plusDays(offset.toLong())
-                add(date.toString() to DayLogic.title(date, today).lowercase())
-            }
         }
     }
 
@@ -298,7 +293,7 @@ private fun DoneRow(done: Boolean, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun AttachmentsSection(
+internal fun AttachmentsSection(
     attachments: List<AttachmentEntity>,
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
@@ -456,7 +451,7 @@ private fun GradeOption(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 /** Человекочитаемое имя файла из content-URI; если провайдер его не отдал — хвост пути. */
-private fun fileName(context: android.content.Context, uri: android.net.Uri): String {
+internal fun fileName(context: android.content.Context, uri: android.net.Uri): String {
     val fromProvider = runCatching {
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
@@ -466,10 +461,24 @@ private fun fileName(context: android.content.Context, uri: android.net.Uri): St
     return fromProvider ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Файл"
 }
 
-private fun openFile(context: android.content.Context, uri: String) {
+/**
+ * Раньше при отсутствии приложения для этого типа файла [Intent.ACTION_VIEW]
+ * падал с ActivityNotFoundException, которую runCatching молча проглатывал —
+ * пользователь нажимал на файл, и ничего не происходило без единой подсказки.
+ */
+internal fun openFile(context: android.content.Context, uri: String) {
+    val parsed = android.net.Uri.parse(uri)
+    val type = context.contentResolver.getType(parsed)?.takeIf { it.isNotBlank() } ?: "*/*"
     val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(android.net.Uri.parse(uri), context.contentResolver.getType(android.net.Uri.parse(uri)))
+        setDataAndType(parsed, type)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    runCatching { context.startActivity(intent) }
+    val opened = runCatching { context.startActivity(intent) }.isSuccess
+    if (!opened) {
+        android.widget.Toast.makeText(
+            context,
+            "На телефоне нет приложения, чтобы открыть этот файл",
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
 }

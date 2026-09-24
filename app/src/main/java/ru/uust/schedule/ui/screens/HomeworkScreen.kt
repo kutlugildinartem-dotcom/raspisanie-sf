@@ -1,5 +1,8 @@
 package ru.uust.schedule.ui.screens
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -21,9 +24,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,7 +48,10 @@ import ru.uust.schedule.domain.DayLogic
 import ru.uust.schedule.domain.HomeworkBucket
 import ru.uust.schedule.domain.HomeworkItem
 import ru.uust.schedule.ui.ScheduleViewModel
+import ru.uust.schedule.ui.components.AttachmentsSection
 import ru.uust.schedule.ui.components.Card
+import ru.uust.schedule.ui.components.fileName
+import ru.uust.schedule.ui.components.openFile
 import ru.uust.schedule.ui.components.quietClickable
 import ru.uust.schedule.ui.theme.LocalPalette
 import ru.uust.schedule.ui.theme.Palette
@@ -62,10 +71,30 @@ fun HomeworkScreen(vm: ScheduleViewModel) {
 
     var items by remember { mutableStateOf<List<HomeworkItem>>(emptyList()) }
     var reloadToken by remember { mutableStateOf(0) }
+    var detailTarget by remember { mutableStateOf<HomeworkItem?>(null) }
     val today = LocalDate.now()
 
     LaunchedEffect(settings.groupId, reloadToken, ui.records) {
         vm.loadHomework { items = it }
+    }
+
+    detailTarget?.let { target ->
+        LaunchedEffect(target.lessonDate, target.subject, target.lessonNumber) {
+            vm.loadAttachments(target.lessonDate, target.subject, target.lessonNumber)
+        }
+        HomeworkDetailDialog(
+            item = target,
+            today = today,
+            attachments = ui.attachments,
+            onToggleDone = { vm.toggleHomeworkDone(target) { reloadToken++ } },
+            onAttach = { uri, name ->
+                vm.attachFile(target.lessonDate, target.subject, target.lessonNumber, uri, name)
+            },
+            onDetach = { uri ->
+                vm.detachFile(target.lessonDate, target.subject, target.lessonNumber, uri)
+            },
+            onDismiss = { detailTarget = null },
+        )
     }
 
     val pending = items.count { !it.done }
@@ -123,6 +152,7 @@ fun HomeworkScreen(vm: ScheduleViewModel) {
                         onToggle = {
                             vm.toggleHomeworkDone(homework) { reloadToken++ }
                         },
+                        onClick = { detailTarget = homework },
                     )
                 }
             }
@@ -151,12 +181,17 @@ private fun BucketHeader(bucket: HomeworkBucket, count: Int, palette: Palette) {
 }
 
 @Composable
-private fun HomeworkCard(item: HomeworkItem, today: LocalDate, onToggle: () -> Unit) {
+private fun HomeworkCard(
+    item: HomeworkItem,
+    today: LocalDate,
+    onToggle: () -> Unit,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val color = Palette.subjectColor(item.subject, palette)
     val overdue = !item.done && item.due < today
 
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth(), onClick = onClick) {
         Row(
             Modifier.padding(start = 14.dp, end = 16.dp, top = 14.dp, bottom = 14.dp),
             verticalAlignment = Alignment.Top,
@@ -234,4 +269,85 @@ private fun HomeworkCard(item: HomeworkItem, today: LocalDate, onToggle: () -> U
             }
         }
     }
+}
+
+/**
+ * Окно по нажатию на карточку: срок, сама задача и файлы — те же
+ * компоненты и та же открывалка файлов, что и в окне пары в расписании,
+ * чтобы «не могу открыть файл» не повторялось по частям приложения.
+ */
+@Composable
+private fun HomeworkDetailDialog(
+    item: HomeworkItem,
+    today: LocalDate,
+    attachments: List<ru.uust.schedule.data.local.AttachmentEntity>,
+    onToggleDone: () -> Unit,
+    onAttach: (uri: String, name: String) -> Unit,
+    onDetach: (uri: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val context = LocalContext.current
+    val overdue = !item.done && item.due < today
+
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            onAttach(uri.toString(), fileName(context, uri))
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = palette.surfaceHigh,
+        titleContentColor = palette.textPrimary,
+        textContentColor = palette.textSecondary,
+        title = {
+            Column {
+                Text(item.subject, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    "Срок: ${item.dueLabel(today)} · ${DayLogic.formatDate(item.due)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (overdue) palette.danger else palette.textMuted,
+                )
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    item.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = palette.textPrimary,
+                    textDecoration = if (item.done) TextDecoration.LineThrough else null,
+                )
+
+                Spacer(Modifier.height(16.dp))
+                AttachmentsSection(
+                    attachments = attachments,
+                    onAdd = { picker.launch(arrayOf("*/*")) },
+                    onOpen = { uri -> openFile(context, uri) },
+                    onRemove = onDetach,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onToggleDone) {
+                Text(
+                    if (item.done) "Снять отметку" else "Отметить сделанным",
+                    color = palette.accent,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть", color = palette.textMuted) }
+        },
+    )
 }
