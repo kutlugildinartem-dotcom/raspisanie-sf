@@ -45,7 +45,7 @@ object WidgetUpdater {
             )
             widgets.notifyAppWidgetViewDataChanged(
                 widgets.getAppWidgetIds(ComponentName(context, WeekWidgetReceiver::class.java)),
-                R.id.week_stack,
+                R.id.week_list,
             )
         }
     }

@@ -5,6 +5,8 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.os.Build
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.View
@@ -14,21 +16,26 @@ import androidx.compose.ui.graphics.toArgb
 import kotlinx.coroutines.runBlocking
 import ru.uust.schedule.MainActivity
 import ru.uust.schedule.R
+import ru.uust.schedule.data.local.SubjectNoteEntity
+import ru.uust.schedule.data.prefs.AppSettings
 import ru.uust.schedule.data.prefs.AppTheme
 import ru.uust.schedule.data.prefs.SettingsStore
 import ru.uust.schedule.data.repo.ScheduleRepository
 import ru.uust.schedule.domain.DayLogic
-import ru.uust.schedule.domain.DaySchedule
+import ru.uust.schedule.domain.Lesson
 import ru.uust.schedule.ui.theme.Palette
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.format.TextStyle
+import java.util.Locale
 
 /**
- * Виджет «Неделя»: недели листаются свайпом.
+ * Виджет «Неделя»: только текущая неделя, крупным текстом.
  *
- * Как и виджет дня, построен на StackView — это единственная коллекция
- * RemoteViews, которой лаунчер отдаёт жест пальцем. Раньше здесь были
- * невидимые зоны нажатия по краям, но листать пальцем привычнее.
+ * Шесть дней с парами крупным шрифтом не влезают ни в один размер виджета,
+ * поэтому это прокручиваемый список (ListView листается свайпом вверх-вниз),
+ * который при каждой перерисовке сам встаёт на сегодняшний день.
  */
 class WeekWidgetReceiver : AppWidgetProvider() {
 
@@ -46,8 +53,6 @@ class WeekWidgetReceiver : AppWidgetProvider() {
     }
 
     companion object {
-        const val WEEKS_BACK = 4
-        const val WEEKS_FORWARD = 8
 
         fun render(context: Context, manager: AppWidgetManager, appWidgetId: Int) {
             try {
@@ -58,8 +63,8 @@ class WeekWidgetReceiver : AppWidgetProvider() {
                     // См. комментарий в DayWidgetReceiver.render — простой URI вместо toUri().
                     data = android.net.Uri.parse("widget://week/$appWidgetId")
                 }
-                views.setRemoteAdapter(R.id.week_stack, intent)
-                views.setEmptyView(R.id.week_stack, R.id.week_stack_empty)
+                views.setRemoteAdapter(R.id.week_list, intent)
+                views.setEmptyView(R.id.week_list, R.id.week_list_empty)
 
                 val open = PendingIntent.getActivity(
                     context,
@@ -68,24 +73,98 @@ class WeekWidgetReceiver : AppWidgetProvider() {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
                 )
-                views.setPendingIntentTemplate(R.id.week_stack, open)
+                views.setPendingIntentTemplate(R.id.week_list, open)
+
+                val snapshot = runCatching { runBlocking { WeekData.load(context, appWidgetId) } }
+                    .getOrNull()
+                val palette = snapshot?.palette ?: Palette.from(AppTheme.Default)
+                val scale = snapshot?.textScale ?: 1f
+                val today = LocalDate.now()
+                val monday = ScheduleRepository.mondayOf(today)
+
+                views.setInt(R.id.week_bg, "setColorFilter", palette.surface.toArgb())
+                views.setTextColor(R.id.week_title, palette.textPrimary.toArgb())
+                views.setTextViewTextSize(R.id.week_title, TypedValue.COMPLEX_UNIT_SP, 22f * scale)
+                views.setTextViewText(R.id.week_range, weekRange(monday))
+                views.setTextColor(R.id.week_range, palette.accent.toArgb())
+                views.setTextViewTextSize(R.id.week_range, TypedValue.COMPLEX_UNIT_SP, 14f * scale)
+                views.setTextColor(R.id.week_list_empty, palette.textSecondary.toArgb())
+
+                // Список встаёт на сегодняшний день, а не на понедельник.
+                val todayRow = snapshot?.rows
+                    ?.indexOfFirst { it is WeekRow.Day && it.date >= today }
+                    ?.takeIf { it >= 0 } ?: 0
+                views.setScrollPosition(R.id.week_list, todayRow)
 
                 manager.updateAppWidget(appWidgetId, views)
-                manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.week_stack)
+                manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.week_list)
             } catch (e: Throwable) {
-                showError(context, manager, appWidgetId, e)
+                val error = RemoteViews(context.packageName, R.layout.widget_error)
+                error.setTextViewText(
+                    R.id.widget_error_text, "RUUNIT: ${e.javaClass.simpleName}: ${e.message}",
+                )
+                runCatching { manager.updateAppWidget(appWidgetId, error) }
             }
         }
 
-        private fun showError(
-            context: Context,
-            manager: AppWidgetManager,
-            appWidgetId: Int,
-            e: Throwable,
-        ) {
-            val error = RemoteViews(context.packageName, R.layout.widget_error)
-            error.setTextViewText(R.id.widget_error_text, "RUUNIT: ${e.javaClass.simpleName}: ${e.message}")
-            runCatching { manager.updateAppWidget(appWidgetId, error) }
+        private fun weekRange(monday: LocalDate): String {
+            val sunday = monday.plusDays(6)
+            return if (monday.month == sunday.month) {
+                "${monday.dayOfMonth} — ${DayLogic.formatDate(sunday)}"
+            } else {
+                "${DayLogic.formatDate(monday)} — ${DayLogic.formatDate(sunday)}"
+            }
+        }
+    }
+}
+
+/** Строка списка недели: заголовок дня, пара или пояснение вместо пар. */
+internal sealed interface WeekRow {
+    data class Day(val date: LocalDate) : WeekRow
+    data class Item(val date: LocalDate, val lesson: Lesson) : WeekRow
+    data class Note(val text: String) : WeekRow
+}
+
+/** Всё, что нужно для отрисовки недели. Общая загрузка для render() и фабрики списка. */
+internal class WeekData(
+    val rows: List<WeekRow>,
+    val palette: Palette,
+    val textScale: Float,
+    val notes: Map<String, SubjectNoteEntity>,
+) {
+    companion object {
+        suspend fun load(context: Context, appWidgetId: Int): WeekData {
+            val store = SettingsStore.get(context)
+            val repo = ScheduleRepository.get(context)
+            val settings: AppSettings = store.current()
+            val config = store.widgetConfig(appWidgetId)
+            val groupId = if (config.groupIdOverride > 0) config.groupIdOverride else settings.groupId
+            val palette = Palette.from(settings.theme)
+
+            if (groupId == 0) return WeekData(emptyList(), palette, settings.widgetTextScale, emptyMap())
+
+            val today = LocalDate.now()
+            val monday = ScheduleRepository.mondayOf(today)
+            val byDate = repo.cachedWeek(groupId, monday)
+                .mapNotNull { day ->
+                    runCatching { LocalDate.parse(day.isoDate) }.getOrNull()?.let { it to day }
+                }
+                .toMap()
+
+            val rows: List<WeekRow> = if (byDate.isEmpty()) {
+                listOf(WeekRow.Note("Нет данных на эту неделю — откройте приложение, чтобы загрузить"))
+            } else buildList<WeekRow> {
+                for (offset in 0..6) {
+                    val date = monday.plusDays(offset.toLong())
+                    val lessons = byDate[date]?.realLessons.orEmpty()
+                    // Воскресенье показываем, только если в нём есть пары.
+                    if (date.dayOfWeek == DayOfWeek.SUNDAY && lessons.isEmpty()) continue
+                    add(WeekRow.Day(date))
+                    if (lessons.isEmpty()) add(WeekRow.Note("Пар нет"))
+                    else lessons.forEach { add(WeekRow.Item(date, it)) }
+                }
+            }
+            return WeekData(rows, palette, settings.widgetTextScale, repo.notes(groupId))
         }
     }
 }
@@ -96,216 +175,162 @@ class WeekStackService : RemoteViewsService() {
             AppWidgetManager.EXTRA_APPWIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID,
         )
-        return WeekStackFactory(applicationContext, appWidgetId)
+        return WeekListFactory(applicationContext, appWidgetId)
     }
 }
 
-private class WeekStackFactory(
+private class WeekListFactory(
     private val context: Context,
     private val appWidgetId: Int,
 ) : RemoteViewsService.RemoteViewsFactory {
 
-    private data class Week(val monday: LocalDate, val days: List<DaySchedule>)
-
-    private var weeks: List<Week> = emptyList()
+    private var rows: List<WeekRow> = emptyList()
     private var palette: Palette = Palette.from(AppTheme.Default)
+    private var notes: Map<String, SubjectNoteEntity> = emptyMap()
     private var textScale = 1f
     private var today: LocalDate = LocalDate.now()
-    private var failure: String? = null
+    private var nowMinutes = 0
 
     override fun onCreate() = Unit
 
     override fun onDataSetChanged() {
-        failure = null
-        runCatching { loadData() }.onFailure { error ->
-            failure = error.message ?: "Не удалось прочитать расписание"
-            weeks = emptyList()
-        }
-    }
-
-    private fun loadData() = runBlocking {
-        val store = SettingsStore.get(context)
-        val repo = ScheduleRepository.get(context)
-
-        val settings = store.current()
-        val config = store.widgetConfig(appWidgetId)
-        val groupId = if (config.groupIdOverride > 0) config.groupIdOverride else settings.groupId
-
-        palette = Palette.from(settings.theme)
-        textScale = settings.widgetTextScale
-        today = LocalDateTime.now().toLocalDate()
-
-        if (groupId == 0) {
-            weeks = emptyList()
-            return@runBlocking
-        }
-
-        // Первая карточка — текущая неделя: StackView всегда открывается на ней.
-        val thisMonday = ScheduleRepository.mondayOf(today)
-        weeks = buildList {
-            for (i in 0..WeekWidgetReceiver.WEEKS_FORWARD) {
-                val monday = thisMonday.plusWeeks(i.toLong())
-                add(Week(monday, repo.cachedWeek(groupId, monday)))
+        val now = LocalDateTime.now()
+        today = now.toLocalDate()
+        nowMinutes = now.hour * 60 + now.minute
+        runCatching { runBlocking { WeekData.load(context, appWidgetId) } }
+            .onSuccess { data ->
+                rows = data.rows
+                palette = data.palette
+                notes = data.notes
+                textScale = data.textScale
             }
-            for (i in 1..WeekWidgetReceiver.WEEKS_BACK) {
-                val monday = thisMonday.minusWeeks(i.toLong())
-                add(Week(monday, repo.cachedWeek(groupId, monday)))
+            .onFailure { error ->
+                rows = listOf(WeekRow.Note(error.message ?: "Не удалось прочитать расписание"))
             }
-        }
     }
 
-    override fun getCount(): Int = weeks.size.coerceAtLeast(1)
-
-    override fun getLoadingView(): RemoteViews = messageCard("Загружаем расписание")
-
-    private fun newCard(): RemoteViews {
-        val views = RemoteViews(context.packageName, R.layout.widget_week_item)
-        views.setInt(R.id.week_bg, "setColorFilter", palette.surface.toArgb())
-        return views
-    }
-
-    private fun messageCard(text: String): RemoteViews {
-        val views = newCard()
-        views.setTextViewText(R.id.week_title, "RUUNIT")
-        views.setTextColor(R.id.week_title, palette.textPrimary.toArgb())
-        views.setTextViewText(R.id.week_range, "")
-        views.setViewVisibility(R.id.week_days, View.GONE)
-        views.setViewVisibility(R.id.week_empty, View.VISIBLE)
-        views.setTextViewText(R.id.week_empty, text)
-        views.setTextColor(R.id.week_empty, palette.textSecondary.toArgb())
-        views.setOnClickFillInIntent(R.id.week_bg, Intent())
-        return views
-    }
+    override fun getCount(): Int = rows.size
 
     override fun getViewAt(position: Int): RemoteViews =
-        runCatching { buildView(position) }
-            .getOrElse { e -> messageCard("${e.javaClass.simpleName}: ${e.message}") }
+        runCatching {
+            when (val row = rows[position]) {
+                is WeekRow.Day -> dayRow(row.date)
+                is WeekRow.Item -> lessonRow(row.date, row.lesson)
+                is WeekRow.Note -> noteRow(row.text)
+            }
+        }.getOrElse { e -> noteRow("${e.javaClass.simpleName}: ${e.message}") }
 
-    private fun buildView(position: Int): RemoteViews {
-        failure?.let { return messageCard(it) }
-        val week = weeks.getOrNull(position)
-            ?: return messageCard("Откройте приложение и выберите группу")
+    private fun dayRow(date: LocalDate): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_week_day_row)
+        val isToday = date == today
+        val name = date.dayOfWeek.getDisplayName(TextStyle.FULL_STANDALONE, Locale("ru"))
+            .replaceFirstChar { it.uppercase() }
 
-        val views = newCard()
-        val isCurrent = today >= week.monday && today <= week.monday.plusDays(6)
-
-        views.setTextViewText(
-            R.id.week_title,
+        views.setTextViewText(R.id.day_name, "$name, ${DayLogic.formatDate(date)}")
+        views.setTextColor(
+            R.id.day_name,
             when {
-                isCurrent -> "Эта неделя"
-                week.monday > today -> "Следующая неделя"
-                else -> "Прошедшая неделя"
-            },
+                isToday -> palette.accent
+                date < today -> palette.textMuted
+                else -> palette.textPrimary
+            }.toArgb(),
         )
-        views.setTextColor(R.id.week_title, palette.textPrimary.toArgb())
-        views.setTextSize(R.id.week_title, 20f)
+        views.setSize(R.id.day_name, if (isToday) 19f else 17f)
 
-        views.setTextViewText(R.id.week_range, weekRange(week.monday))
-        views.setTextColor(R.id.week_range, palette.accent.toArgb())
-        views.setTextSize(R.id.week_range, 13f)
-
-        val withLessons = week.days.filter { it.realLessons.isNotEmpty() }
-        if (withLessons.isEmpty()) {
-            views.setViewVisibility(R.id.week_days, View.GONE)
-            views.setViewVisibility(R.id.week_empty, View.VISIBLE)
-            views.setTextViewText(R.id.week_empty, "На эту неделю пар нет")
-            views.setTextColor(R.id.week_empty, palette.textSecondary.toArgb())
-            views.setTextSize(R.id.week_empty, 15f)
+        if (isToday) {
+            views.setViewVisibility(R.id.day_badge, View.VISIBLE)
+            views.setTextColor(R.id.day_badge, palette.onAccent.toArgb())
+            views.setSize(R.id.day_badge, 12f)
+            views.setInt(R.id.day_badge, "setBackgroundResource", R.drawable.widget_chip)
+            // Тонирование фона со скруглением доступно RemoteViews только с Android 12;
+            // раньше — просто заливка цветом, плашка выйдет прямоугольной.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                views.setColorStateList(
+                    R.id.day_badge, "setBackgroundTintList",
+                    ColorStateList.valueOf(palette.accent.toArgb()),
+                )
+            } else {
+                views.setInt(R.id.day_badge, "setBackgroundColor", palette.accent.toArgb())
+            }
         } else {
-            views.setViewVisibility(R.id.week_empty, View.GONE)
-            views.setViewVisibility(R.id.week_days, View.VISIBLE)
-            fillDays(views, withLessons)
+            views.setViewVisibility(R.id.day_badge, View.GONE)
         }
 
-        views.setOnClickFillInIntent(R.id.week_bg, Intent())
+        views.setOnClickFillInIntent(R.id.row_root, Intent())
         return views
     }
 
-    private fun fillDays(views: RemoteViews, days: List<DaySchedule>) {
-        DAY_IDS.forEachIndexed { index, ids ->
-            val day = days.getOrNull(index)
-            if (day == null) {
-                views.setViewVisibility(ids.container, View.GONE)
-                return@forEachIndexed
-            }
+    private fun lessonRow(date: LocalDate, lesson: Lesson): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_week_lesson_row)
+        val isNow = date == today && lesson.startMin >= 0 &&
+            nowMinutes >= lesson.startMin && nowMinutes < lesson.endMin
+        val isPast = date < today || (date == today && lesson.endMin in 0..nowMinutes)
+        val note = notes[lesson.subject]
 
-            views.setViewVisibility(ids.container, View.VISIBLE)
+        views.setViewVisibility(R.id.lesson_time, View.VISIBLE)
+        views.setViewVisibility(R.id.lesson_pill, View.VISIBLE)
+        views.setTextViewText(R.id.lesson_time, lesson.timeRange.take(5))
+        views.setTextColor(
+            R.id.lesson_time,
+            (if (isNow) palette.accent else palette.textMuted).toArgb(),
+        )
+        views.setSize(R.id.lesson_time, 15f)
 
-            val date = runCatching { LocalDate.parse(day.isoDate) }.getOrNull()
-            val isToday = date == today
+        views.setInt(
+            R.id.lesson_pill, "setColorFilter",
+            Palette.subjectColor(lesson.subject, palette, note?.hue ?: -1).toArgb(),
+        )
 
-            views.setTextViewText(
-                ids.name,
-                date?.let { DayLogic.shortDay(it) + ", " + DayLogic.formatDate(it) }
-                    ?: day.dayName,
-            )
-            views.setTextColor(
-                ids.name,
-                (if (isToday) palette.accent else palette.textPrimary).toArgb(),
-            )
-            views.setTextSize(ids.name, if (isToday) 16f else 14f)
+        views.setTextViewText(R.id.lesson_subject, lesson.subject)
+        views.setTextColor(
+            R.id.lesson_subject,
+            (if (isPast && !isNow) palette.textMuted else palette.textPrimary).toArgb(),
+        )
+        views.setSize(R.id.lesson_subject, 16f)
 
-            // «Сегодня» — залитая плашка акцентом, а не серая подпись:
-            // среди шести одинаковых строк её иначе не найти взглядом.
-            if (isToday) {
-                views.setViewVisibility(ids.badge, View.VISIBLE)
-                views.setTextViewText(ids.badge, "СЕГОДНЯ")
-                views.setInt(ids.badge, "setBackgroundResource", R.drawable.widget_chip)
-                views.setInt(ids.badge, "setBackgroundColor", palette.accent.toArgb())
-                views.setTextColor(ids.badge, palette.onAccent.toArgb())
-                views.setTextSize(ids.badge, 11f)
-            } else {
-                views.setViewVisibility(ids.badge, View.GONE)
-            }
+        val meta = listOfNotNull(
+            typeLabel(lesson.type).ifBlank { null },
+            lesson.room.trim().ifBlank { null },
+        ).joinToString(" · ")
+        views.setViewVisibility(R.id.lesson_meta, if (meta.isBlank()) View.GONE else View.VISIBLE)
+        views.setTextViewText(R.id.lesson_meta, meta)
+        views.setTextColor(R.id.lesson_meta, palette.textSecondary.toArgb())
+        views.setSize(R.id.lesson_meta, 14f)
 
-            views.setTextViewText(
-                ids.lessons,
-                day.realLessons.joinToString("\n") { lesson ->
-                    listOfNotNull(
-                        lesson.timeRange.take(5).ifBlank { null },
-                        lesson.subject,
-                        lesson.room.ifBlank { null },
-                    ).joinToString(" · ")
-                },
-            )
-            views.setTextColor(
-                ids.lessons,
-                (if (isToday) palette.textSecondary else palette.textMuted).toArgb(),
-            )
-            views.setTextSize(ids.lessons, 12f)
-        }
+        views.setOnClickFillInIntent(R.id.row_root, Intent())
+        return views
     }
 
-    private fun weekRange(monday: LocalDate): String {
-        val sunday = monday.plusDays(6)
-        return if (monday.month == sunday.month) {
-            "${monday.dayOfMonth} — ${DayLogic.formatDate(sunday)}"
-        } else {
-            "${DayLogic.formatDate(monday)} — ${DayLogic.formatDate(sunday)}"
-        }
+    /** «Пар нет» и сообщения об ошибках — та же строка пары без времени и метки. */
+    private fun noteRow(text: String): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_week_lesson_row)
+        views.setViewVisibility(R.id.lesson_time, View.GONE)
+        views.setViewVisibility(R.id.lesson_pill, View.GONE)
+        views.setViewVisibility(R.id.lesson_meta, View.GONE)
+        views.setTextViewText(R.id.lesson_subject, text)
+        views.setTextColor(R.id.lesson_subject, palette.textMuted.toArgb())
+        views.setSize(R.id.lesson_subject, 15f)
+        views.setOnClickFillInIntent(R.id.row_root, Intent())
+        return views
     }
 
-    private fun RemoteViews.setTextSize(viewId: Int, baseSp: Float) {
+    /** Сайт сокращает тип до «Лек»/«Пр»/«Лаб» — в виджете пишем полностью. */
+    private fun typeLabel(raw: String): String = when (raw.trim().lowercase()) {
+        "лек" -> "Лекция"
+        "пр" -> "Практика"
+        "лаб" -> "Лабораторная"
+        else -> raw.trim()
+    }
+
+    private fun RemoteViews.setSize(viewId: Int, baseSp: Float) {
         setTextViewTextSize(viewId, TypedValue.COMPLEX_UNIT_SP, baseSp * textScale)
     }
 
-    override fun getViewTypeCount(): Int = 1
+    override fun getLoadingView(): RemoteViews = noteRow("")
+    override fun getViewTypeCount(): Int = 2
     override fun getItemId(position: Int): Long = position.toLong()
-    override fun hasStableIds(): Boolean = true
+    override fun hasStableIds(): Boolean = false
     override fun onDestroy() {
-        weeks = emptyList()
-    }
-
-    private data class DayIds(val container: Int, val name: Int, val badge: Int, val lessons: Int)
-
-    companion object {
-        private val DAY_IDS = listOf(
-            DayIds(R.id.day_1, R.id.day_name_1, R.id.day_badge_1, R.id.day_lessons_1),
-            DayIds(R.id.day_2, R.id.day_name_2, R.id.day_badge_2, R.id.day_lessons_2),
-            DayIds(R.id.day_3, R.id.day_name_3, R.id.day_badge_3, R.id.day_lessons_3),
-            DayIds(R.id.day_4, R.id.day_name_4, R.id.day_badge_4, R.id.day_lessons_4),
-            DayIds(R.id.day_5, R.id.day_name_5, R.id.day_badge_5, R.id.day_lessons_5),
-            DayIds(R.id.day_6, R.id.day_name_6, R.id.day_badge_6, R.id.day_lessons_6),
-        )
+        rows = emptyList()
     }
 }

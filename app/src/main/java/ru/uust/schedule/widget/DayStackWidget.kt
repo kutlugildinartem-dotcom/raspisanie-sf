@@ -60,7 +60,7 @@ class DayWidgetReceiver : AppWidgetProvider() {
     }
 
     companion object {
-        const val DAYS_BACK = 7
+        const val DAYS_BACK = 0
         const val DAYS_FORWARD = 21
 
         fun render(context: Context, manager: AppWidgetManager, appWidgetId: Int) {
@@ -93,6 +93,23 @@ class DayWidgetReceiver : AppWidgetProvider() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
                 )
                 views.setPendingIntentTemplate(R.id.day_stack, open)
+
+                val palette = runCatching {
+                    Palette.from(runBlocking { SettingsStore.get(context).current() }.theme)
+                }.getOrDefault(Palette.from(AppTheme.Default))
+                views.setInt(R.id.nav_bg, "setColorFilter", palette.surface.toArgb())
+                views.setTextColor(R.id.nav_prev, palette.accent.toArgb())
+                views.setTextColor(R.id.nav_next, palette.accent.toArgb())
+                views.setTextColor(R.id.nav_today, palette.textPrimary.toArgb())
+                views.setOnClickPendingIntent(
+                    R.id.nav_prev, DayNavReceiver.intent(context, appWidgetId, DayNavReceiver.PREV),
+                )
+                views.setOnClickPendingIntent(
+                    R.id.nav_next, DayNavReceiver.intent(context, appWidgetId, DayNavReceiver.NEXT),
+                )
+                views.setOnClickPendingIntent(
+                    R.id.nav_today, DayNavReceiver.intent(context, appWidgetId, DayNavReceiver.TODAY),
+                )
 
                 manager.updateAppWidget(appWidgetId, views)
                 manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.day_stack)
@@ -197,18 +214,11 @@ private class DayStackFactory(
             DayLogic.shift(today, DayWidgetReceiver.DAYS_FORWARD),
         )
 
-        // Порядок списка начинается с того дня, который виджет показывает
-        // по умолчанию: StackView всегда открывается на первом элементе.
-        val start = DayLogic.defaultDate(now, settings.switchHour)
-        items = buildList {
-            for (i in 0..DayWidgetReceiver.DAYS_FORWARD) {
-                val date = DayLogic.shift(start, i)
-                add(Item(date, repo.cachedDay(groupId, date)))
-            }
-            for (i in 1..DayWidgetReceiver.DAYS_BACK) {
-                val date = DayLogic.shift(start, -i)
-                add(Item(date, repo.cachedDay(groupId, date)))
-            }
+        // Первая карточка — сегодня, дальше только будущие дни: StackView
+        // открывается на первом элементе, а прошедшие дни в виджете не нужны.
+        items = (0..DayWidgetReceiver.DAYS_FORWARD).map { i ->
+            val date = today.plusDays(i.toLong())
+            Item(date, repo.cachedDay(groupId, date))
         }
     }
 
@@ -227,7 +237,8 @@ private class DayStackFactory(
         compact = heightDp < 200
         val rowHeight = ((if (compact) 32 else 46) * textScale).toInt().coerceAtLeast(20)
         val header = (74 * textScale).toInt()
-        val available = (heightDp - header).coerceAtLeast(rowHeight)
+        // 50dp забирает полоска кнопок ‹ Сегодня › под карточкой.
+        val available = (heightDp - header - 50).coerceAtLeast(rowHeight)
         maxRows = (available / rowHeight).coerceIn(1, 8)
     }
 
@@ -398,5 +409,50 @@ private class DayStackFactory(
             RowIds(R.id.row_7, R.id.row_time_7, R.id.row_pill_7, R.id.row_subject_7, R.id.row_meta_7),
             RowIds(R.id.row_8, R.id.row_time_8, R.id.row_pill_8, R.id.row_subject_8, R.id.row_meta_8),
         )
+    }
+}
+
+/**
+ * Кнопки ‹ Сегодня › под карточками. Двигают StackView частичным
+ * обновлением — остальная разметка виджета при этом не пересобирается.
+ */
+class DayNavReceiver : android.content.BroadcastReceiver() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val appWidgetId = intent.getIntExtra(
+            AppWidgetManager.EXTRA_APPWIDGET_ID,
+            AppWidgetManager.INVALID_APPWIDGET_ID,
+        )
+        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
+
+        val views = RemoteViews(context.packageName, R.layout.widget_day_stack)
+        when (intent.action) {
+            NEXT -> views.showNext(R.id.day_stack)
+            PREV -> views.showPrevious(R.id.day_stack)
+            TODAY -> views.setDisplayedChild(R.id.day_stack, 0)
+            else -> return
+        }
+        runCatching {
+            AppWidgetManager.getInstance(context).partiallyUpdateAppWidget(appWidgetId, views)
+        }
+    }
+
+    companion object {
+        const val NEXT = "ru.uust.schedule.widget.DAY_NEXT"
+        const val PREV = "ru.uust.schedule.widget.DAY_PREV"
+        const val TODAY = "ru.uust.schedule.widget.DAY_TODAY"
+
+        fun intent(context: Context, appWidgetId: Int, action: String): PendingIntent {
+            val intent = Intent(context, DayNavReceiver::class.java)
+                .setAction(action)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            // Разный requestCode на каждую пару «виджет + кнопка», иначе
+            // PendingIntent'ы разных кнопок и виджетов подменяют друг друга.
+            val code = appWidgetId * 4 + when (action) { NEXT -> 1; PREV -> 2; else -> 3 }
+            return PendingIntent.getBroadcast(
+                context, code, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
     }
 }

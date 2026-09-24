@@ -159,7 +159,7 @@ fun SettingsScreen(vm: ScheduleViewModel) {
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Оба виджета листаются свайпом вверх-вниз",
+                "«День»: кнопки ‹ Сегодня › или свайп вверх-вниз. «Неделя»: прокрутка вверх-вниз",
                 style = MaterialTheme.typography.labelSmall,
                 color = palette.textMuted,
             )
@@ -210,9 +210,9 @@ fun SettingsScreen(vm: ScheduleViewModel) {
             }
         }
 
-        Section("Виджет «День»") {
+        Section("Переход на завтра") {
             Text(
-                "После этого часа виджет показывает завтрашний день",
+                "После этого часа приложение открывается на завтрашнем дне",
                 style = MaterialTheme.typography.bodyMedium,
                 color = palette.textMuted,
             )

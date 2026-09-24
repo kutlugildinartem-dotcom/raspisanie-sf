@@ -1,30 +1,93 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Виджет «День». StackView — единственная коллекция RemoteViews, которая
-  сама обрабатывает свайп пальцем: лаунчер отдаёт ей вертикальный жест.
+  Виджет «День»: карточки дней в StackView (листаются свайпом вверх-вниз)
+  и полоска кнопок ‹ Сегодня › под ними. Горизонтальный свайп виджету
+  недоступен — его всегда забирает лаунчер для листания рабочих столов.
 
-  Запасная надпись имеет явный цвет: по умолчанию текст в виджете чёрный,
-  а на тёмных обоях это выглядит как пустой виджет.
+  Только классы из разрешённого списка RemoteViews: Space, View и прочие
+  валят инфлейт в процессе лаунчера, и виджет висит на «Загрузка…».
 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:orientation="vertical">
 
-    <StackView
-        android:id="@+id/day_stack"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:loopViews="true"
-        android:gravity="center" />
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
-    <TextView
-        android:id="@+id/day_empty"
+        <StackView
+            android:id="@+id/day_stack"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:loopViews="false"
+            android:gravity="center" />
+
+        <TextView
+            android:id="@+id/day_empty"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:padding="20dp"
+            android:textSize="15sp"
+            android:textColor="#FFDDDDDD"
+            android:text="Откройте приложение и выберите группу"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:padding="20dp"
-        android:textSize="15sp"
-        android:textColor="#FFDDDDDD"
-        android:text="Откройте приложение и выберите группу"
-        android:visibility="gone" />
-</FrameLayout>
+        android:layout_height="44dp"
+        android:layout_marginTop="6dp">
+
+        <ImageView
+            android:id="@+id/nav_bg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitXY"
+            android:src="@drawable/widget_card"
+            android:contentDescription="@null" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/nav_prev"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="‹"
+                android:textSize="26sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFFFF"
+                android:contentDescription="Предыдущий день" />
+
+            <TextView
+                android:id="@+id/nav_today"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1.4"
+                android:gravity="center"
+                android:text="Сегодня"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFFFF" />
+
+            <TextView
+                android:id="@+id/nav_next"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="›"
+                android:textSize="26sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFFFF"
+                android:contentDescription="Следующий день" />
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>

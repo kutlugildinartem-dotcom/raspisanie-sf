@@ -47,6 +47,11 @@
                 android:resource="@xml/day_widget_info" />
         </receiver>
 
+        <!-- Кнопки ‹ Сегодня › виджета «День». -->
+        <receiver
+            android:name=".widget.DayNavReceiver"
+            android:exported="false" />
+
         <!-- Поставляет карточки дней в StackView. Разрешение требует система. -->
         <service
             android:name=".widget.DayStackService"

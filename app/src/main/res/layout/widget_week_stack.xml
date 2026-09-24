@@ -1,24 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Виджет «Неделя»: недели листаются свайпом через StackView. -->
+<!--
+  Виджет «Неделя»: только текущая неделя. Заголовок сверху, под ним
+  прокручиваемый список дней и пар (ListView листается свайпом вверх-вниз)
+  — крупным текстом шесть дней целиком не влезают ни в один размер виджета.
+
+  Только классы из разрешённого списка RemoteViews.
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <StackView
-        android:id="@+id/week_stack"
+    <ImageView
+        android:id="@+id/week_bg"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:loopViews="true"
-        android:gravity="center" />
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_card"
+        android:contentDescription="@null" />
 
-    <TextView
-        android:id="@+id/week_stack_empty"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:gravity="center"
-        android:padding="20dp"
-        android:textSize="15sp"
-        android:textColor="#FFDDDDDD"
-        android:text="Откройте приложение и выберите группу"
-        android:visibility="gone" />
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/week_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Эта неделя"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFFFF"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/week_range"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:textSize="14sp"
+            android:textColor="#FFAAAAAA"
+            android:maxLines="1" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <ListView
+                android:id="@+id/week_list"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:divider="@null"
+                android:dividerHeight="0dp"
+                android:scrollbars="none" />
+
+            <TextView
+                android:id="@+id/week_list_empty"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:textSize="16sp"
+                android:textColor="#FFAAAAAA"
+                android:text="Откройте приложение и выберите группу"
+                android:visibility="gone" />
+        </FrameLayout>
+    </LinearLayout>
 </FrameLayout>
