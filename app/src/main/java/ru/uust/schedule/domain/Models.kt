@@ -18,6 +18,13 @@ data class Lesson(
     val timeRange: String
         get() = if (startMin < 0) "" else "${fmt(startMin)} - ${fmt(endMin)}"
 
+    /** «10:10» или «10:10–11:40» — как выбрано в настройках. */
+    fun timeLabel(range: Boolean): String = when {
+        startMin < 0 -> ""
+        range && endMin >= 0 -> "${fmt(startMin)}–${fmt(endMin)}"
+        else -> fmt(startMin)
+    }
+
     private fun fmt(m: Int) = "%02d:%02d".format(m / 60, m % 60)
 
     companion object {

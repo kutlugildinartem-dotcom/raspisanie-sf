@@ -56,6 +56,7 @@ data class LayoutData(
     val dueHomework: List<ru.uust.schedule.domain.HomeworkItem> = emptyList(),
     val today: LocalDate,
     val nowMinutes: Int,
+    val timeRange: Boolean = false,
     val onLessonClick: (LocalDate, Lesson) -> Unit,
 ) {
     /**
@@ -222,6 +223,7 @@ fun GridLayout(days: List<DaySchedule>, data: LayoutData, weekMonday: LocalDate)
                     record = data.recordFor(date, lesson),
                     dueText = data.dueTextFor(date, lesson),
                     compact = true,
+                    timeRange = data.timeRange,
                     onClick = { data.onLessonClick(date, lesson) },
                 )
             }
@@ -281,6 +283,7 @@ private fun LessonEntry(date: LocalDate, lesson: Lesson, data: LayoutData) {
         teacherFull = note?.teacherFull,
         record = data.recordFor(date, lesson),
         dueText = data.dueTextFor(date, lesson),
+        timeRange = data.timeRange,
         onClick = { data.onLessonClick(date, lesson) },
     )
 }

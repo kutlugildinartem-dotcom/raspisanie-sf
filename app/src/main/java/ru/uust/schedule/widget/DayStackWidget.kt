@@ -149,6 +149,7 @@ private class DayStackFactory(
     private var showTeacher = true
     private var maxRows = 4
     private var cardHeightDp = 180
+    private var timeRange = false
     private var textScale = 1f
     private var today: LocalDate = LocalDate.now()
     private var nowMinutes = 0
@@ -181,6 +182,7 @@ private class DayStackFactory(
         palette = Palette.from(settings.theme)
         showTeacher = config.showTeacher
         textScale = settings.widgetTextScale
+        timeRange = settings.showTimeRange
 
         val now = LocalDateTime.now()
         today = now.toLocalDate()
@@ -350,7 +352,8 @@ private class DayStackFactory(
         // Название может занять две строки — под них и считаем кегль.
         val rowDp = rowsAreaDp() / shown.size
         val subjectSp = minOf(rowDp / 2.75f, 21f * textScale).coerceAtLeast(12f)
-        val timeSp = subjectSp * 0.9f
+        // Диапазон «10:10–11:40» вдвое длиннее — чуть мельче и колонка шире.
+        val timeSp = subjectSp * (if (timeRange) 0.8f else 0.9f)
         val typeSp = (subjectSp * 0.66f).coerceAtLeast(10f)
         val showType = rowDp >= (timeSp + typeSp) * 1.3f
         val newApi = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
@@ -372,11 +375,13 @@ private class DayStackFactory(
             val subjectColor = Palette.subjectColor(lesson.subject, palette, note?.hue ?: -1)
 
             if (newApi) {
-                views.setViewLayoutWidth(ids.left, timeSp * 3.7f, TypedValue.COMPLEX_UNIT_DIP)
+                views.setViewLayoutWidth(
+                    ids.left, timeSp * (if (timeRange) 6.4f else 3.7f), TypedValue.COMPLEX_UNIT_DIP,
+                )
                 views.setViewLayoutHeight(ids.pill, rowDp * 0.7f, TypedValue.COMPLEX_UNIT_DIP)
             }
 
-            views.setTextViewText(ids.time, lesson.timeRange.take(5))
+            views.setTextViewText(ids.time, lesson.timeLabel(timeRange))
             views.setTextColor(
                 ids.time,
                 when {

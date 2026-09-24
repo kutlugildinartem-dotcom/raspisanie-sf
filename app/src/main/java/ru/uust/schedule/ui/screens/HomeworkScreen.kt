@@ -78,6 +78,17 @@ fun HomeworkScreen(vm: ScheduleViewModel) {
         vm.loadHomework { items = it }
     }
 
+    val openRequest by vm.openHomework.collectAsStateWithLifecycle()
+    LaunchedEffect(openRequest, items) {
+        val request = openRequest ?: return@LaunchedEffect
+        if (items.isEmpty()) return@LaunchedEffect
+        items.firstOrNull {
+            it.subject == request.subject && it.lessonDate == request.lessonDate &&
+                it.lessonNumber == request.lessonNumber
+        }?.let { detailTarget = it }
+        vm.consumeOpenHomework()
+    }
+
     detailTarget?.let { target ->
         LaunchedEffect(target.lessonDate, target.subject, target.lessonNumber) {
             vm.loadAttachments(target.lessonDate, target.subject, target.lessonNumber)

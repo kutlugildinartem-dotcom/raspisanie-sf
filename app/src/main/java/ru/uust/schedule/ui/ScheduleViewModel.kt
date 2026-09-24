@@ -222,6 +222,34 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun updateHomeworkReminder(enabled: Boolean, hour: Int) {
+        viewModelScope.launch {
+            store.update { it.copy(homeworkReminder = enabled, homeworkReminderHour = hour.coerceIn(0, 23)) }
+            ru.uust.schedule.work.HomeworkReminder.scheduleNow(getApplication())
+        }
+    }
+
+    fun updateShowTimeRange(show: Boolean) {
+        viewModelScope.launch {
+            store.update { it.copy(showTimeRange = show) }
+            WidgetUpdater.updateAll(getApplication())
+        }
+    }
+
+    /** Задание, которое нужно открыть по нажатию на уведомление. */
+    data class HomeworkTarget(val subject: String, val lessonDate: LocalDate, val lessonNumber: Int)
+
+    private val _openHomework = kotlinx.coroutines.flow.MutableStateFlow<HomeworkTarget?>(null)
+    val openHomework: kotlinx.coroutines.flow.StateFlow<HomeworkTarget?> = _openHomework
+
+    fun requestOpenHomework(target: HomeworkTarget) {
+        _openHomework.value = target
+    }
+
+    fun consumeOpenHomework() {
+        _openHomework.value = null
+    }
+
     fun updateExtraNotifications(scheduleChanges: Boolean, nextWeekAdded: Boolean) {
         viewModelScope.launch {
             store.update {

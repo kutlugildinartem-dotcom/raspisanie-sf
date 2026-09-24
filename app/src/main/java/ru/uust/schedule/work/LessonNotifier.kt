@@ -223,6 +223,7 @@ class BootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { LessonNotifier.rescheduleNow(context) }
+            runCatching { HomeworkReminder.scheduleNow(context) }
             pending.finish()
         }
     }
@@ -244,6 +245,7 @@ class PackageReplacedReceiver : BroadcastReceiver() {
             runCatching {
                 ru.uust.schedule.widget.WidgetUpdater.updateAllNow(context)
             }
+            runCatching { HomeworkReminder.scheduleNow(context) }
             pending.finish()
         }
     }

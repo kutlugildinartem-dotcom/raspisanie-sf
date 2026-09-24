@@ -312,6 +312,7 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
             dueHomework = dueHomework,
             today = today,
             nowMinutes = nowMinutes,
+            timeRange = settings.showTimeRange,
             onLessonClick = { d, lesson -> sheetTarget = d to lesson },
         )
 

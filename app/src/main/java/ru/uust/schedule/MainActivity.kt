@@ -63,6 +63,8 @@ class MainActivity : ComponentActivity() {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
+        handleHomeworkIntent(intent)
+
         setContent {
             val settings by vm.settings.collectAsStateWithLifecycle()
 
@@ -80,6 +82,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleHomeworkIntent(intent)
+    }
+
+    /** Нажатие на напоминание о домашке открывает окно этого задания. */
+    private fun handleHomeworkIntent(intent: android.content.Intent?) {
+        val subject = intent?.getStringExtra(ru.uust.schedule.work.HomeworkReminder.EXTRA_SUBJECT) ?: return
+        val date = intent.getStringExtra(ru.uust.schedule.work.HomeworkReminder.EXTRA_LESSON_DATE)
+            ?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return
+        val number = intent.getIntExtra(ru.uust.schedule.work.HomeworkReminder.EXTRA_LESSON_NUMBER, 0)
+        vm.requestOpenHomework(ScheduleViewModel.HomeworkTarget(subject, date, number))
+        // Иначе при повороте экрана то же окно открывалось бы снова.
+        intent.removeExtra(ru.uust.schedule.work.HomeworkReminder.EXTRA_SUBJECT)
+    }
+
     override fun onResume() {
         super.onResume()
         vm.refresh(silent = true)
@@ -93,6 +111,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainShell(vm: ScheduleViewModel) {
     var tab by remember { mutableStateOf(Tab.Schedule) }
+    val openHomework by vm.openHomework.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(openHomework) {
+        if (openHomework != null) tab = Tab.Homework
+    }
 
     Scaffold(
         containerColor = Color.Transparent,

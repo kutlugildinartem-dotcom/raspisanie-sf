@@ -58,6 +58,8 @@ fun LessonCard(
      */
     dueText: String? = null,
     compact: Boolean = false,
+    /** «10:10–11:40» вместо «10:10». */
+    timeRange: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
@@ -81,7 +83,7 @@ fun LessonCard(
                 // Ключевая строка: когда, какое занятие и где.
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = lesson.timeRange.take(5),
+                        text = lesson.timeLabel(timeRange),
                         style = MaterialTheme.typography.titleMedium,
                         color = (if (isNow) palette.accent else palette.textPrimary)
                             .copy(alpha = fade),

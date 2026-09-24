@@ -86,6 +86,27 @@ fun SettingsScreen(vm: ScheduleViewModel) {
             }
         }
 
+        Section("Время пар") {
+            Text(
+                "Как показывать время — в приложении и в виджетах",
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textMuted,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip(
+                    text = "Только начало · 10:10",
+                    selected = !settings.showTimeRange,
+                    onClick = { vm.updateShowTimeRange(false) },
+                )
+                Chip(
+                    text = "10:10–11:40",
+                    selected = settings.showTimeRange,
+                    onClick = { vm.updateShowTimeRange(true) },
+                )
+            }
+        }
+
         Section("Оформление") {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 BaseOption(
@@ -205,6 +226,29 @@ fun SettingsScreen(vm: ScheduleViewModel) {
                             text = "$minutes мин",
                             selected = settings.notifyMinutesBefore == minutes,
                             onClick = { vm.updateNotifications(true, minutes) },
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            ToggleRow(
+                title = "Напоминать о домашке",
+                subtitle = "Накануне срока, в ${settings.homeworkReminderHour}:00",
+                checked = settings.homeworkReminder,
+                onChange = { vm.updateHomeworkReminder(it, settings.homeworkReminderHour) },
+            )
+            if (settings.homeworkReminder) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    (7..22).forEach { hour ->
+                        Chip(
+                            text = "$hour:00",
+                            selected = settings.homeworkReminderHour == hour,
+                            onClick = { vm.updateHomeworkReminder(true, hour) },
                         )
                     }
                 }

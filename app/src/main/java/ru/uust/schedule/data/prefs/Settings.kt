@@ -68,6 +68,12 @@ data class AppSettings(
     val dismissedUpdateVersion: String = "",
     /** Масштаб текста в виджетах: 1.0 обычный, 1.2 крупный, 1.45 очень крупный. */
     val widgetTextScale: Float = 1f,
+    /** Напоминание накануне срока домашки: «Завтра домашка по предмету». */
+    val homeworkReminder: Boolean = true,
+    /** Час, в который приходит напоминание о домашке. */
+    val homeworkReminderHour: Int = 10,
+    /** Время пары диапазоном «10:10–11:40», а не только начало — и в приложении, и в виджетах. */
+    val showTimeRange: Boolean = false,
 )
 
 /** Как выглядит главный экран. */

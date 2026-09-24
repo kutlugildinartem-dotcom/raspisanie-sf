@@ -137,6 +137,7 @@ internal class WeekData(
     val notes: Map<String, SubjectNoteEntity>,
     val title: String,
     val monday: LocalDate,
+    val timeRange: Boolean = false,
 ) {
     companion object {
         suspend fun load(context: Context, appWidgetId: Int): WeekData {
@@ -167,7 +168,10 @@ internal class WeekData(
                     rows = nextRows
                 }
             }
-            return WeekData(rows, palette, settings.widgetTextScale, repo.notes(groupId), title, monday)
+            return WeekData(
+                rows, palette, settings.widgetTextScale, repo.notes(groupId), title, monday,
+                settings.showTimeRange,
+            )
         }
 
         private suspend fun buildRows(
@@ -219,6 +223,7 @@ private class WeekListFactory(
     private var palette: Palette = Palette.from(AppTheme.Default)
     private var notes: Map<String, SubjectNoteEntity> = emptyMap()
     private var textScale = 1f
+    private var timeRange = false
     private var today: LocalDate = LocalDate.now()
     private var nowMinutes = 0
 
@@ -234,6 +239,7 @@ private class WeekListFactory(
                 palette = data.palette
                 notes = data.notes
                 textScale = data.textScale
+                timeRange = data.timeRange
             }
             .onFailure { error ->
                 rows = listOf(WeekRow.Note(error.message ?: "Не удалось прочитать расписание"))
@@ -292,11 +298,11 @@ private class WeekListFactory(
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             views.setViewLayoutWidth(
-                R.id.lesson_left, 60f * textScale, TypedValue.COMPLEX_UNIT_DIP,
+                R.id.lesson_left, (if (timeRange) 100f else 60f) * textScale, TypedValue.COMPLEX_UNIT_DIP,
             )
         }
 
-        views.setTextViewText(R.id.lesson_time, lesson.timeRange.take(5))
+        views.setTextViewText(R.id.lesson_time, lesson.timeLabel(timeRange))
         views.setTextColor(
             R.id.lesson_time,
             when {

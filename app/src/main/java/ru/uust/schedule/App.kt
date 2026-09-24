@@ -7,5 +7,6 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         LessonNotifier.ensureChannel(this)
+        ru.uust.schedule.work.HomeworkReminder.schedule(this)
     }
 }

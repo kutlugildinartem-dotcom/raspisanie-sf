@@ -76,6 +76,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".work.HomeworkReminderReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".data.update.InstallResultReceiver"
             android:exported="false">
             <intent-filter>
