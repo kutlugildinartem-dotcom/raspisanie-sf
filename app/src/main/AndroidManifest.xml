@@ -47,9 +47,9 @@
                 android:resource="@xml/day_widget_info" />
         </receiver>
 
-        <!-- Кнопки ‹ Сегодня › виджета «День». -->
+        <!-- Смена «сегодня → завтра» в виджете «День» после последней пары. -->
         <receiver
-            android:name=".widget.DayNavReceiver"
+            android:name=".widget.DayRolloverReceiver"
             android:exported="false" />
 
         <!-- Поставляет карточки дней в StackView. Разрешение требует система. -->

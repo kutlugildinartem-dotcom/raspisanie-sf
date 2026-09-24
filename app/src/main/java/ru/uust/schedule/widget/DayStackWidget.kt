@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import androidx.compose.ui.graphics.toArgb
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import ru.uust.schedule.MainActivity
 import ru.uust.schedule.R
@@ -28,12 +29,10 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 
 /**
- * Виджет «День» со свайпом.
- *
- * Написан на классических RemoteViews, а не на Glance, ради StackView: это
- * единственная коллекция, которая сама обрабатывает жест пальцем — лаунчер
- * отдаёт ей вертикальный свайп. Горизонтальный свайп в виджете недоступен
- * в принципе, его забирает перелистывание страниц рабочего стола.
+ * Виджет «День»: плоский список карточек, каждая во весь виджет. Первая —
+ * сегодня, после последней пары — завтра; следующие дни — свайпом вверх.
+ * Горизонтальный свайп в виджете недоступен в принципе, его забирает
+ * перелистывание страниц рабочего стола.
  *
  * Все подложки рисуются XML-фигурами с тонированием, а не Bitmap'ами.
  * Bitmap на элемент коллекции весил около мегабайта и упирался в лимит
@@ -81,8 +80,8 @@ class DayWidgetReceiver : AppWidgetProvider() {
                     // на некоторых прошивках не переживает проход через Binder лаунчера.
                     data = android.net.Uri.parse("widget://day/$appWidgetId")
                 }
-                views.setRemoteAdapter(R.id.day_stack, intent)
-                views.setEmptyView(R.id.day_stack, R.id.day_empty)
+                views.setRemoteAdapter(R.id.day_list, intent)
+                views.setEmptyView(R.id.day_list, R.id.day_empty)
 
                 // Шаблон клика: сам элемент дописывает в него свои extras.
                 val open = PendingIntent.getActivity(
@@ -92,27 +91,14 @@ class DayWidgetReceiver : AppWidgetProvider() {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
                 )
-                views.setPendingIntentTemplate(R.id.day_stack, open)
+                views.setPendingIntentTemplate(R.id.day_list, open)
 
-                val palette = runCatching {
-                    Palette.from(runBlocking { SettingsStore.get(context).current() }.theme)
-                }.getOrDefault(Palette.from(AppTheme.Default))
-                views.setInt(R.id.nav_bg, "setColorFilter", palette.surface.toArgb())
-                views.setTextColor(R.id.nav_prev, palette.accent.toArgb())
-                views.setTextColor(R.id.nav_next, palette.accent.toArgb())
-                views.setTextColor(R.id.nav_today, palette.textPrimary.toArgb())
-                views.setOnClickPendingIntent(
-                    R.id.nav_prev, DayNavReceiver.intent(context, appWidgetId, DayNavReceiver.PREV),
-                )
-                views.setOnClickPendingIntent(
-                    R.id.nav_next, DayNavReceiver.intent(context, appWidgetId, DayNavReceiver.NEXT),
-                )
-                views.setOnClickPendingIntent(
-                    R.id.nav_today, DayNavReceiver.intent(context, appWidgetId, DayNavReceiver.TODAY),
-                )
+                // После каждого обновления виджет снова стоит на текущем дне,
+                // даже если перед этим его пролистали к следующим.
+                views.setScrollPosition(R.id.day_list, 0)
 
                 manager.updateAppWidget(appWidgetId, views)
-                manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.day_stack)
+                manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.day_list)
             } catch (e: Throwable) {
                 showError(context, manager, appWidgetId, e)
             }
@@ -142,7 +128,7 @@ class DayStackService : RemoteViewsService() {
 }
 
 /**
- * Готовит карточки дней для StackView.
+ * Готовит карточки дней для списка виджета.
  *
  * Число видимых строк считается от реальной высоты виджета, а не подбирается
  * на глаз: иначе на низком виджете подробности съедают место и видна всего
@@ -161,6 +147,7 @@ private class DayStackFactory(
     private var records: Map<RecordKey, LessonRecordEntity> = emptyMap()
     private var showTeacher = true
     private var maxRows = 4
+    private var cardHeightDp = 180
     private var compact = false
     private var textScale = 1f
     private var today: LocalDate = LocalDate.now()
@@ -214,12 +201,27 @@ private class DayStackFactory(
             DayLogic.shift(today, DayWidgetReceiver.DAYS_FORWARD),
         )
 
-        // Первая карточка — сегодня, дальше только будущие дни: StackView
-        // открывается на первом элементе, а прошедшие дни в виджете не нужны.
+        // Первая карточка — сегодня, пока пары не закончились; после последней
+        // пары (или если сегодня пар нет вовсе) — завтра. Дальше идут следующие дни.
+        val todayDay = repo.cachedDay(groupId, today)
+        val lessonsToday = todayDay?.realLessons.orEmpty()
+        val lastEnd = lessonsToday.map { it.endMin }.filter { it >= 0 }.maxOrNull()
+        val startsTomorrow = lessonsToday.isEmpty() || (lastEnd != null && nowMinutes >= lastEnd)
+        val start = if (startsTomorrow) today.plusDays(1) else today
+
         items = (0..DayWidgetReceiver.DAYS_FORWARD).map { i ->
-            val date = today.plusDays(i.toLong())
-            Item(date, repo.cachedDay(groupId, date))
+            val date = start.plusDays(i.toLong())
+            Item(date, if (date == today) todayDay else repo.cachedDay(groupId, date))
         }
+
+        // Следующее переключение: сразу после последней пары, иначе — после полуночи,
+        // когда «Завтра» становится «Сегодня».
+        val switchAt = if (!startsTomorrow && lastEnd != null) {
+            today.atStartOfDay().plusMinutes(lastEnd.toLong() + 1)
+        } else {
+            today.plusDays(1).atStartOfDay().plusMinutes(1)
+        }
+        DayRolloverReceiver.schedule(context, switchAt)
     }
 
     /**
@@ -229,20 +231,21 @@ private class DayStackFactory(
      */
     private fun measureRows() {
         val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(appWidgetId)
+        // MAX_HEIGHT — высота в портретной ориентации, в которой виджет и видят.
         val heightDp = options
-            ?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+            ?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)
             ?.takeIf { it > 0 }
+            ?: options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)?.takeIf { it > 0 }
             ?: 180
+        cardHeightDp = heightDp
 
         compact = heightDp < 200
         val rowHeight = ((if (compact) 32 else 46) * textScale).toInt().coerceAtLeast(20)
         val header = (74 * textScale).toInt()
-        // 50dp забирает полоска кнопок ‹ Сегодня › под карточкой.
-        val available = (heightDp - header - 50).coerceAtLeast(rowHeight)
+        val available = (heightDp - header).coerceAtLeast(rowHeight)
         maxRows = (available / rowHeight).coerceIn(1, 8)
     }
 
-    // Никогда не возвращаем 0: пустой адаптер оставляет StackView в «Загрузке».
     override fun getCount(): Int = items.size.coerceAtLeast(1)
 
     /** Заглушка вместо системного «Загрузка…» — в стиле остальных карточек. */
@@ -250,6 +253,13 @@ private class DayStackFactory(
 
     private fun newCard(): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_day_item)
+        // Карточка ровно во весь виджет — в списке видно только один день.
+        // Задать высоту элементу списка RemoteViews умеют только с Android 12.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            views.setViewLayoutHeight(
+                R.id.item_root, cardHeightDp.toFloat(), TypedValue.COMPLEX_UNIT_DIP,
+            )
+        }
         // Тонирование белой фигуры вместо Bitmap: тот же вид, но в транзакцию
         // уходит идентификатор ресурса и один int, а не мегабайт пикселей.
         views.setInt(R.id.item_bg, "setColorFilter", palette.surface.toArgb())
@@ -413,46 +423,33 @@ private class DayStackFactory(
 }
 
 /**
- * Кнопки ‹ Сегодня › под карточками. Двигают StackView частичным
- * обновлением — остальная разметка виджета при этом не пересобирается.
+ * Будильник «пары закончились / наступила полночь»: перерисовывает виджеты,
+ * чтобы первая карточка сменилась с сегодня на завтра (и обратно после
+ * полуночи) вовремя, а не при следующем плановом обновлении раз в полчаса.
  */
-class DayNavReceiver : android.content.BroadcastReceiver() {
+class DayRolloverReceiver : android.content.BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val appWidgetId = intent.getIntExtra(
-            AppWidgetManager.EXTRA_APPWIDGET_ID,
-            AppWidgetManager.INVALID_APPWIDGET_ID,
-        )
-        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
-
-        val views = RemoteViews(context.packageName, R.layout.widget_day_stack)
-        when (intent.action) {
-            NEXT -> views.showNext(R.id.day_stack)
-            PREV -> views.showPrevious(R.id.day_stack)
-            TODAY -> views.setDisplayedChild(R.id.day_stack, 0)
-            else -> return
-        }
-        runCatching {
-            AppWidgetManager.getInstance(context).partiallyUpdateAppWidget(appWidgetId, views)
+        val pending = goAsync()
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            runCatching { WidgetUpdater.updateAllNow(context) }
+            pending.finish()
         }
     }
 
     companion object {
-        const val NEXT = "ru.uust.schedule.widget.DAY_NEXT"
-        const val PREV = "ru.uust.schedule.widget.DAY_PREV"
-        const val TODAY = "ru.uust.schedule.widget.DAY_TODAY"
-
-        fun intent(context: Context, appWidgetId: Int, action: String): PendingIntent {
-            val intent = Intent(context, DayNavReceiver::class.java)
-                .setAction(action)
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-            // Разный requestCode на каждую пару «виджет + кнопка», иначе
-            // PendingIntent'ы разных кнопок и виджетов подменяют друг друга.
-            val code = appWidgetId * 4 + when (action) { NEXT -> 1; PREV -> 2; else -> 3 }
-            return PendingIntent.getBroadcast(
-                context, code, intent,
+        /** Одно отложенное срабатывание на всё приложение: новое заменяет старое. */
+        fun schedule(context: Context, at: LocalDateTime) {
+            val alarms = context.getSystemService(android.app.AlarmManager::class.java) ?: return
+            val pi = PendingIntent.getBroadcast(
+                context, 0, Intent(context, DayRolloverReceiver::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+            val millis = at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            // Неточный будильник: разрешения на точные не нужно, сдвиг — минуты.
+            runCatching {
+                alarms.setAndAllowWhileIdle(android.app.AlarmManager.RTC, millis, pi)
+            }
         }
     }
 }

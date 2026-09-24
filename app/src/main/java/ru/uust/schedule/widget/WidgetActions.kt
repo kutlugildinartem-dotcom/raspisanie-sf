@@ -41,7 +41,7 @@ object WidgetUpdater {
             val widgets = AppWidgetManager.getInstance(context)
             widgets.notifyAppWidgetViewDataChanged(
                 widgets.getAppWidgetIds(ComponentName(context, DayWidgetReceiver::class.java)),
-                R.id.day_stack,
+                R.id.day_list,
             )
             widgets.notifyAppWidgetViewDataChanged(
                 widgets.getAppWidgetIds(ComponentName(context, WeekWidgetReceiver::class.java)),

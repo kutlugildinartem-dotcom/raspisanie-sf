@@ -159,7 +159,7 @@ fun SettingsScreen(vm: ScheduleViewModel) {
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "«День»: кнопки ‹ Сегодня › или свайп вверх-вниз. «Неделя»: прокрутка вверх-вниз",
+                "«День»: сегодня, после последней пары — завтра; другие дни свайпом вверх. «Неделя»: прокрутка вверх-вниз",
                 style = MaterialTheme.typography.labelSmall,
                 color = palette.textMuted,
             )
