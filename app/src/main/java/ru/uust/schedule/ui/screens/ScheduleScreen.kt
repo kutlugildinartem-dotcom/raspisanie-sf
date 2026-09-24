@@ -87,9 +87,6 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     val updateState by vm.updateState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var sheetTarget by remember { mutableStateOf<Pair<LocalDate, ru.uust.schedule.domain.Lesson>?>(null) }
-    var upcomingHomework by remember {
-        mutableStateOf<List<ru.uust.schedule.domain.HomeworkItem>>(emptyList())
-    }
     // Не сданные задания со сроком — чтобы показать текст под парой, на которую
     // выпадает срок, даже если запись создавалась на другом занятии.
     var dueHomework by remember {
@@ -352,7 +349,6 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
         // предмету подтягиваются под конкретную пару, как только окно открылось.
         LaunchedEffect(sheetDate, lesson.number) {
             vm.loadAttachments(sheetDate, lesson.subject, lesson.number)
-            vm.loadHomework { upcomingHomework = it }
             vm.loadUpcomingLessonDates(lesson.subject, sheetDate) { upcomingLessonDates = it }
         }
 
@@ -367,10 +363,6 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
             ],
             attachments = ui.attachments,
             upcomingLessonDates = upcomingLessonDates,
-            // Своё же задание в подсказке не показываем — оно и так в поле выше.
-            upcoming = upcomingHomework.filterNot {
-                it.done || (it.subject == lesson.subject && it.lessonDate == sheetDate)
-            }.take(6),
             onDismiss = { sheetTarget = null },
             onAttach = { uri, name ->
                 vm.attachFile(sheetDate, lesson.subject, lesson.number, uri, name)

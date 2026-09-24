@@ -46,17 +46,11 @@ import androidx.compose.ui.unit.dp
 import ru.uust.schedule.data.local.AttachmentEntity
 import ru.uust.schedule.data.local.LessonRecordEntity
 import ru.uust.schedule.domain.DayLogic
-import ru.uust.schedule.domain.HomeworkItem
 import ru.uust.schedule.domain.Lesson
 import ru.uust.schedule.ui.theme.LocalPalette
 import java.time.LocalDate
 
-/**
- * Окно пары: домашка, срок, файлы и оценка.
- *
- * Здесь же показан список ближайших заданий по другим предметам — когда
- * записываешь новое, полезно видеть, что уже висит и на когда.
- */
+/** Окно пары: домашка, срок, файлы и оценка. */
 @Composable
 fun LessonSheet(
     lesson: Lesson,
@@ -66,7 +60,6 @@ fun LessonSheet(
     attachments: List<AttachmentEntity>,
     /** Даты 1–2 ближайших пар по этому предмету — для «к следующей»/«через пару» с числом дней. */
     upcomingLessonDates: List<LocalDate>,
-    upcoming: List<HomeworkItem>,
     onDismiss: () -> Unit,
     onAttach: (uri: String, name: String) -> Unit,
     onDetach: (uri: String) -> Unit,
@@ -174,10 +167,6 @@ fun LessonSheet(
                     }
                 }
 
-                if (upcoming.isNotEmpty()) {
-                    Spacer(Modifier.height(18.dp))
-                    UpcomingList(upcoming, today)
-                }
             }
         },
         confirmButton = {
@@ -360,60 +349,6 @@ internal fun AttachmentsSection(
                     Icon(
                         Icons.Rounded.Close, "Открепить",
                         tint = palette.textMuted, modifier = Modifier.size(15.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** Что уже задано по другим предметам — контекст, пока записываешь новое. */
-@Composable
-private fun UpcomingList(items: List<HomeworkItem>, today: LocalDate) {
-    val palette = LocalPalette.current
-
-    Column {
-        Text(
-            "Ближайшие задания",
-            style = MaterialTheme.typography.labelMedium,
-            color = palette.textMuted,
-        )
-        Spacer(Modifier.height(8.dp))
-        Column(
-            Modifier.heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            items.forEach { item ->
-                val overdue = item.due < today
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(palette.surface)
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            item.subject,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = palette.textMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            item.text,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = palette.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        item.dueLabel(today),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (overdue) palette.danger else palette.accent,
                     )
                 }
             }

@@ -91,6 +91,7 @@ class WeekWidgetReceiver : AppWidgetProvider() {
                 // Список начинается с сегодняшнего дня; после каждого обновления
                 // возвращаемся в его начало, даже если перед этим прокрутили.
                 views.setScrollPosition(R.id.week_list, 0)
+                DayRolloverReceiver.scheduleReset(context)
 
                 manager.updateAppWidget(appWidgetId, views)
                 manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.week_list)

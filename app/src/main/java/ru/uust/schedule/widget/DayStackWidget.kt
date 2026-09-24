@@ -96,6 +96,7 @@ class DayWidgetReceiver : AppWidgetProvider() {
                 // После каждого обновления виджет снова стоит на текущем дне,
                 // даже если перед этим его пролистали к следующим.
                 views.setScrollPosition(R.id.day_list, 0)
+                DayRolloverReceiver.scheduleReset(context)
 
                 manager.updateAppWidget(appWidgetId, views)
                 manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.day_list)
@@ -453,13 +454,25 @@ private class DayStackFactory(
 }
 
 /**
- * Будильник «пары закончились / наступила полночь»: перерисовывает виджеты,
- * чтобы первая карточка сменилась с сегодня на завтра (и обратно после
- * полуночи) вовремя, а не при следующем плановом обновлении раз в полчаса.
+ * Два будильника виджетов.
+ *
+ * Смена дня: сразу после последней пары и после полуночи перерисовывает
+ * виджеты, чтобы первая карточка сменилась с сегодня на завтра вовремя,
+ * а не при следующем плановом обновлении раз в полчаса.
+ *
+ * Возврат к сегодня: через 15 минут после каждой перерисовки прокручивает
+ * списки обоих виджетов в начало. Узнать, что пользователь пролистал виджет,
+ * приложение не может, поэтому возвращаем по таймеру. Будильник не будит
+ * телефон: если экран выключен, он сработает вскоре после включения.
  */
 class DayRolloverReceiver : android.content.BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_RESET) {
+            scrollToStart(context)
+            scheduleReset(context)
+            return
+        }
         val pending = goAsync()
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             runCatching { WidgetUpdater.updateAllNow(context) }
@@ -467,7 +480,33 @@ class DayRolloverReceiver : android.content.BroadcastReceiver() {
         }
     }
 
+    /** Частичное обновление: только прокрутка, карточки не пересобираются. */
+    private fun scrollToStart(context: Context) {
+        val manager = AppWidgetManager.getInstance(context)
+        runCatching {
+            val dayIds = manager.getAppWidgetIds(
+                android.content.ComponentName(context, DayWidgetReceiver::class.java),
+            )
+            if (dayIds.isNotEmpty()) {
+                val views = RemoteViews(context.packageName, R.layout.widget_day_stack)
+                views.setScrollPosition(R.id.day_list, 0)
+                manager.partiallyUpdateAppWidget(dayIds, views)
+            }
+            val weekIds = manager.getAppWidgetIds(
+                android.content.ComponentName(context, WeekWidgetReceiver::class.java),
+            )
+            if (weekIds.isNotEmpty()) {
+                val views = RemoteViews(context.packageName, R.layout.widget_week_stack)
+                views.setScrollPosition(R.id.week_list, 0)
+                manager.partiallyUpdateAppWidget(weekIds, views)
+            }
+        }
+    }
+
     companion object {
+        private const val ACTION_RESET = "ru.uust.schedule.widget.SCROLL_TO_TODAY"
+        private const val RESET_AFTER_MINUTES = 15L
+
         /** Одно отложенное срабатывание на всё приложение: новое заменяет старое. */
         fun schedule(context: Context, at: LocalDateTime) {
             val alarms = context.getSystemService(android.app.AlarmManager::class.java) ?: return
@@ -479,6 +518,21 @@ class DayRolloverReceiver : android.content.BroadcastReceiver() {
             // Неточный будильник: разрешения на точные не нужно, сдвиг — минуты.
             runCatching {
                 alarms.setAndAllowWhileIdle(android.app.AlarmManager.RTC, millis, pi)
+            }
+        }
+
+        /** Возврат к сегодняшнему дню через 15 минут; повторный вызов переносит срок. */
+        fun scheduleReset(context: Context) {
+            val alarms = context.getSystemService(android.app.AlarmManager::class.java) ?: return
+            val pi = PendingIntent.getBroadcast(
+                context, 1,
+                Intent(context, DayRolloverReceiver::class.java).setAction(ACTION_RESET),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val at = System.currentTimeMillis() + RESET_AFTER_MINUTES * 60_000L
+            // RTC без WAKEUP — не будит телефон; окно в минуту не требует разрешений.
+            runCatching {
+                alarms.setWindow(android.app.AlarmManager.RTC, at, 60_000L, pi)
             }
         }
     }
