@@ -72,6 +72,8 @@ data class AppSettings(
     val homeworkReminder: Boolean = true,
     /** Час, в который приходит напоминание о домашке. */
     val homeworkReminderHour: Int = 10,
+    /** За сколько дней до срока напоминать: 1, 2, 3 — то есть за 24, 48, 72 часа. */
+    val homeworkReminderDays: List<Int> = listOf(1, 2, 3),
     /** Время пары диапазоном «10:10–11:40», а не только начало — и в приложении, и в виджетах. */
     val showTimeRange: Boolean = false,
 )

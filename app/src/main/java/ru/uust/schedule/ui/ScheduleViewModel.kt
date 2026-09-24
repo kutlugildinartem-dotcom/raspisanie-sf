@@ -229,6 +229,18 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Включает или выключает напоминание за [days] дней до срока (1, 2 или 3). */
+    fun toggleHomeworkReminderDays(days: Int) {
+        viewModelScope.launch {
+            store.update { s ->
+                val set = s.homeworkReminderDays.toMutableSet()
+                if (!set.add(days)) set.remove(days)
+                // Совсем без вариантов напоминание теряет смысл — для этого есть тумблер.
+                if (set.isEmpty()) s else s.copy(homeworkReminderDays = set.sorted())
+            }
+        }
+    }
+
     fun updateShowTimeRange(show: Boolean) {
         viewModelScope.launch {
             store.update { it.copy(showTimeRange = show) }

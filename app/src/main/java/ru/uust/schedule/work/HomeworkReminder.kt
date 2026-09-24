@@ -25,8 +25,9 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 
 /**
- * Напоминание накануне срока: раз в день в выбранный час — «Завтра домашка
- * по предмету». Нажатие открывает окно этого задания во вкладке «Задания».
+ * Напоминание о домашке за 24, 48 и/или 72 часа до срока: раз в день в
+ * выбранный час проверяем задания со сроком через 1, 2, 3 дня (какие
+ * выбраны в настройках). Нажатие открывает окно задания во вкладке «Задания».
  */
 object HomeworkReminder {
 
@@ -65,17 +66,21 @@ object HomeworkReminder {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    /** Все несданные задания со сроком на завтра — по уведомлению на каждое. */
-    suspend fun notifyDueTomorrow(context: Context) {
+    /** Несданные задания, до срока которых осталось выбранное число дней. */
+    suspend fun notifyDue(context: Context) {
         val settings = SettingsStore.get(context).current()
         if (!settings.homeworkReminder || settings.groupId == 0) return
-        val tomorrow = LocalDate.now().plusDays(1)
+        val today = LocalDate.now()
+        val days = settings.homeworkReminderDays.toSet()
         ScheduleRepository.get(context).homework(settings.groupId)
-            .filter { !it.done && it.due == tomorrow }
-            .forEach { show(context, it) }
+            .filter { !it.done }
+            .forEach { item ->
+                val left = java.time.temporal.ChronoUnit.DAYS.between(today, item.due).toInt()
+                if (left in days) show(context, item, left)
+            }
     }
 
-    private fun show(context: Context, item: HomeworkItem) {
+    private fun show(context: Context, item: HomeworkItem, daysLeft: Int) {
         ensureChannel(context)
         val id = "${item.lessonDate}|${item.subject}|${item.lessonNumber}".hashCode()
         val open = PendingIntent.getActivity(
@@ -89,7 +94,7 @@ object HomeworkReminder {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_schedule)
-            .setContentTitle("Завтра домашка: ${item.subject}")
+            .setContentTitle("${whenLabel(daysLeft)} домашка: ${item.subject}")
             .setContentText(item.text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(item.text))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -97,6 +102,12 @@ object HomeworkReminder {
             .setContentIntent(open)
             .build()
         runCatching { NotificationManagerCompat.from(context).notify(id, notification) }
+    }
+
+    private fun whenLabel(daysLeft: Int): String = when (daysLeft) {
+        1 -> "Завтра"
+        2 -> "Послезавтра"
+        else -> "Через $daysLeft дня"
     }
 
     private fun ensureChannel(context: Context) {
@@ -108,7 +119,7 @@ object HomeworkReminder {
                 CHANNEL_ID,
                 "Домашние задания",
                 NotificationManager.IMPORTANCE_DEFAULT,
-            ).apply { description = "Накануне срока сдачи домашнего задания" }
+            ).apply { description = "За 1–3 дня до срока сдачи домашнего задания" }
         )
     }
 }
@@ -117,7 +128,7 @@ class HomeworkReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            runCatching { HomeworkReminder.notifyDueTomorrow(context) }
+            runCatching { HomeworkReminder.notifyDue(context) }
             runCatching { HomeworkReminder.scheduleNow(context) }
             pending.finish()
         }

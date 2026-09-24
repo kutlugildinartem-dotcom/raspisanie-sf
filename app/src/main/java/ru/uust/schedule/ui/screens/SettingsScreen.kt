@@ -234,12 +234,23 @@ fun SettingsScreen(vm: ScheduleViewModel) {
             Spacer(Modifier.height(14.dp))
             ToggleRow(
                 title = "Напоминать о домашке",
-                subtitle = "Накануне срока, в ${settings.homeworkReminderHour}:00",
+                subtitle = "До срока: " + settings.homeworkReminderDays.joinToString(", ") { "${it * 24} ч" } +
+                    ", приходит в ${settings.homeworkReminderHour}:00",
                 checked = settings.homeworkReminder,
                 onChange = { vm.updateHomeworkReminder(it, settings.homeworkReminderHour) },
             )
             if (settings.homeworkReminder) {
                 Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(1, 2, 3).forEach { days ->
+                        Chip(
+                            text = "За ${days * 24} ч",
+                            selected = days in settings.homeworkReminderDays,
+                            onClick = { vm.toggleHomeworkReminderDays(days) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
