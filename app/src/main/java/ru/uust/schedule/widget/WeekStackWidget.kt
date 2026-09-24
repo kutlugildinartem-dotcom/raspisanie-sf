@@ -5,7 +5,6 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
-import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.util.TypedValue
@@ -273,16 +272,7 @@ private class WeekListFactory(
             views.setTextColor(R.id.day_badge, palette.onAccent.toArgb())
             views.setSize(R.id.day_badge, 12f)
             views.setInt(R.id.day_badge, "setBackgroundResource", R.drawable.widget_chip)
-            // Тонирование фона со скруглением доступно RemoteViews только с Android 12;
-            // раньше — просто заливка цветом, плашка выйдет прямоугольной.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                views.setColorStateList(
-                    R.id.day_badge, "setBackgroundTintList",
-                    ColorStateList.valueOf(palette.accent.toArgb()),
-                )
-            } else {
-                views.setInt(R.id.day_badge, "setBackgroundColor", palette.accent.toArgb())
-            }
+            views.tintChip(R.id.day_badge, palette.accent.toArgb())
         } else {
             views.setViewVisibility(R.id.day_badge, View.GONE)
         }
@@ -291,21 +281,36 @@ private class WeekListFactory(
         return views
     }
 
+    /** Та же строка, что и в виджете «День»: время и тип слева, кабинет плашкой справа. */
     private fun lessonRow(date: LocalDate, lesson: Lesson): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_week_lesson_row)
         val isNow = date == today && lesson.startMin >= 0 &&
             nowMinutes >= lesson.startMin && nowMinutes < lesson.endMin
-        val isPast = date < today || (date == today && lesson.endMin in 0..nowMinutes)
+        val faded = (date < today || (date == today && lesson.endMin in 0..nowMinutes)) && !isNow
         val note = notes[lesson.subject]
 
-        views.setViewVisibility(R.id.lesson_time, View.VISIBLE)
-        views.setViewVisibility(R.id.lesson_pill, View.VISIBLE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            views.setViewLayoutWidth(
+                R.id.lesson_left, 60f * textScale, TypedValue.COMPLEX_UNIT_DIP,
+            )
+        }
+
         views.setTextViewText(R.id.lesson_time, lesson.timeRange.take(5))
         views.setTextColor(
             R.id.lesson_time,
-            (if (isNow) palette.accent else palette.textMuted).toArgb(),
+            when {
+                isNow -> palette.accent
+                faded -> palette.textMuted
+                else -> palette.textPrimary
+            }.toArgb(),
         )
         views.setSize(R.id.lesson_time, 15f)
+
+        val type = lessonTypeLabel(lesson.type)
+        views.setViewVisibility(R.id.lesson_type, if (type.isBlank()) View.GONE else View.VISIBLE)
+        views.setTextViewText(R.id.lesson_type, type)
+        views.setTextColor(R.id.lesson_type, palette.textMuted.toArgb())
+        views.setSize(R.id.lesson_type, 11f)
 
         views.setInt(
             R.id.lesson_pill, "setColorFilter",
@@ -315,42 +320,39 @@ private class WeekListFactory(
         views.setTextViewText(R.id.lesson_subject, lesson.subject)
         views.setTextColor(
             R.id.lesson_subject,
-            (if (isPast && !isNow) palette.textMuted else palette.textPrimary).toArgb(),
+            (if (faded) palette.textMuted else palette.textPrimary).toArgb(),
         )
         views.setSize(R.id.lesson_subject, 16f)
 
-        val meta = listOfNotNull(
-            typeLabel(lesson.type).ifBlank { null },
-            lesson.room.trim().ifBlank { null },
-        ).joinToString(" · ")
-        views.setViewVisibility(R.id.lesson_meta, if (meta.isBlank()) View.GONE else View.VISIBLE)
-        views.setTextViewText(R.id.lesson_meta, meta)
-        views.setTextColor(R.id.lesson_meta, palette.textSecondary.toArgb())
-        views.setSize(R.id.lesson_meta, 14f)
+        val room = lesson.room.trim()
+        if (room.isNotBlank()) {
+            views.setViewVisibility(R.id.lesson_room, View.VISIBLE)
+            views.setTextViewText(R.id.lesson_room, room)
+            views.setTextColor(
+                R.id.lesson_room,
+                (if (faded) palette.textMuted else palette.accent).toArgb(),
+            )
+            views.tintChip(R.id.lesson_room, palette.tint(if (faded) 0.08f else 0.2f).toArgb())
+            views.setSize(R.id.lesson_room, 14f)
+        } else {
+            views.setViewVisibility(R.id.lesson_room, View.GONE)
+        }
 
         views.setOnClickFillInIntent(R.id.row_root, Intent())
         return views
     }
 
-    /** «Пар нет» и сообщения об ошибках — та же строка пары без времени и метки. */
+    /** «Пар нет» и сообщения об ошибках — та же строка пары, только с текстом. */
     private fun noteRow(text: String): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_week_lesson_row)
-        views.setViewVisibility(R.id.lesson_time, View.GONE)
+        views.setViewVisibility(R.id.lesson_left, View.GONE)
         views.setViewVisibility(R.id.lesson_pill, View.GONE)
-        views.setViewVisibility(R.id.lesson_meta, View.GONE)
+        views.setViewVisibility(R.id.lesson_room, View.GONE)
         views.setTextViewText(R.id.lesson_subject, text)
         views.setTextColor(R.id.lesson_subject, palette.textMuted.toArgb())
         views.setSize(R.id.lesson_subject, 15f)
         views.setOnClickFillInIntent(R.id.row_root, Intent())
         return views
-    }
-
-    /** Сайт сокращает тип до «Лек»/«Пр»/«Лаб» — в виджете пишем полностью. */
-    private fun typeLabel(raw: String): String = when (raw.trim().lowercase()) {
-        "лек" -> "Лекция"
-        "пр" -> "Практика"
-        "лаб" -> "Лабораторная"
-        else -> raw.trim()
     }
 
     private fun RemoteViews.setSize(viewId: Int, baseSp: Float) {

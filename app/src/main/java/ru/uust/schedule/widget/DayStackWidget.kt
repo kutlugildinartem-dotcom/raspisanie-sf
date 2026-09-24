@@ -240,8 +240,8 @@ private class DayStackFactory(
         maxRows = (rowsAreaDp() / (36f * textScale)).toInt().coerceIn(1, 8)
     }
 
-    /** Высота заголовка карточки: название дня, плашка с датой и отступы. */
-    private fun headerDp(): Float = titleSp() + 15f * textScale * 1.2f + 50f
+    /** Высота заголовка карточки: название дня (плашка с датой в той же строке) и отступы. */
+    private fun headerDp(): Float = titleSp() * 1.35f + 30f
 
     private fun titleSp(): Float = (if (cardHeightDp < 130) 22f else 28f) * textScale
 
@@ -265,7 +265,6 @@ private class DayStackFactory(
         // Тонирование белой фигуры вместо Bitmap: тот же вид, но в транзакцию
         // уходит идентификатор ресурса и один int, а не мегабайт пикселей.
         views.setInt(R.id.item_bg, "setColorFilter", palette.surface.toArgb())
-        views.setViewVisibility(R.id.item_count, View.GONE)
         return views
     }
 
@@ -305,14 +304,7 @@ private class DayStackFactory(
         )
         views.setTextColor(R.id.item_date, palette.onAccent.toArgb())
         views.sp(R.id.item_date, 15f * textScale)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            views.setColorStateList(
-                R.id.item_date, "setBackgroundTintList",
-                android.content.res.ColorStateList.valueOf(palette.accent.toArgb()),
-            )
-        } else {
-            views.setInt(R.id.item_date, "setBackgroundColor", palette.accent.toArgb())
-        }
+        views.tintChip(R.id.item_date, palette.accent.toArgb())
 
         if (lessons.isEmpty()) {
             views.setViewVisibility(R.id.item_rows, View.GONE)
@@ -342,6 +334,10 @@ private class DayStackFactory(
      * строки: мало пар — крупно, без пустого места внизу; много — мельче,
      * но всё помещается. Если все пары не влезают, сегодня сначала выпадают
      * уже прошедшие.
+     *
+     * Строка: слева время и тип занятия, по центру название до двух строк,
+     * справа кабинет плашкой. Домашку и преподавателя виджет не показывает —
+     * только то, что нужно, чтобы дойти до пары.
      */
     private fun fillRows(views: RemoteViews, date: LocalDate, lessons: List<Lesson>) {
         val shown = if (lessons.size > maxRows && date == today) {
@@ -350,10 +346,12 @@ private class DayStackFactory(
             lessons.take(maxRows)
         }
 
+        // Название может занять две строки — под них и считаем кегль.
         val rowDp = rowsAreaDp() / shown.size
-        val subjectSp = minOf((rowDp * 0.34f).coerceIn(15f, 24f) * textScale, rowDp * 0.45f)
-            .coerceAtLeast(12f)
-        val showMeta = rowDp >= subjectSp * 2.3f
+        val subjectSp = minOf(rowDp / 2.75f, 21f * textScale).coerceAtLeast(12f)
+        val timeSp = subjectSp * 0.9f
+        val typeSp = (subjectSp * 0.66f).coerceAtLeast(10f)
+        val showType = rowDp >= (timeSp + typeSp) * 1.3f
         val newApi = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
 
         ROW_IDS.forEachIndexed { index, ids ->
@@ -368,58 +366,59 @@ private class DayStackFactory(
             val isNow = date == today && lesson.startMin >= 0 &&
                 nowMinutes >= lesson.startMin && nowMinutes < lesson.endMin
             val isPast = date < today || (date == today && lesson.endMin in 0..nowMinutes)
+            val faded = isPast && !isNow
             val note = notes[lesson.subject]
             val subjectColor = Palette.subjectColor(lesson.subject, palette, note?.hue ?: -1)
 
+            if (newApi) {
+                views.setViewLayoutWidth(ids.left, timeSp * 3.7f, TypedValue.COMPLEX_UNIT_DIP)
+                views.setViewLayoutHeight(ids.pill, rowDp * 0.7f, TypedValue.COMPLEX_UNIT_DIP)
+            }
+
             views.setTextViewText(ids.time, lesson.timeRange.take(5))
-            views.setTextColor(ids.time, (if (isNow) palette.accent else palette.textMuted).toArgb())
-            views.sp(ids.time, subjectSp * 0.85f)
+            views.setTextColor(
+                ids.time,
+                when {
+                    isNow -> palette.accent
+                    faded -> palette.textMuted
+                    else -> palette.textPrimary
+                }.toArgb(),
+            )
+            views.sp(ids.time, timeSp)
+
+            val type = lessonTypeLabel(lesson.type)
+            if (showType && type.isNotBlank()) {
+                views.setViewVisibility(ids.type, View.VISIBLE)
+                views.setTextViewText(ids.type, type)
+                views.setTextColor(ids.type, palette.textMuted.toArgb())
+                views.sp(ids.type, typeSp)
+            } else {
+                views.setViewVisibility(ids.type, View.GONE)
+            }
 
             views.setInt(ids.pill, "setColorFilter", subjectColor.toArgb())
-            if (newApi) {
-                views.setViewLayoutHeight(ids.pill, rowDp * 0.6f, TypedValue.COMPLEX_UNIT_DIP)
-            }
 
             views.setTextViewText(ids.subject, lesson.subject)
             views.setTextColor(
                 ids.subject,
-                (if (isPast && !isNow) palette.textMuted else palette.textPrimary).toArgb(),
+                (if (faded) palette.textMuted else palette.textPrimary).toArgb(),
             )
             views.sp(ids.subject, subjectSp)
 
-            // Невыполненная домашка вытесняет всё остальное: ради неё в виджет и смотрят.
-            val record = records[RecordKey(date.toString(), lesson.subject, lesson.number)]
-                ?: records[RecordKey(date.toString(), lesson.subject, 0)]
-            val meta = when {
-                record != null && record.hasHomework && !record.homeworkDone ->
-                    "• " + record.homework
-                !note?.note.isNullOrBlank() -> note!!.note
-                else -> listOfNotNull(
-                    typeLabel(lesson.type).ifBlank { null },
-                    lesson.room.ifBlank { null },
-                    if (showTeacher) {
-                        note?.teacherFull?.ifBlank { null } ?: lesson.teacher.ifBlank { null }
-                    } else null,
-                ).joinToString(" · ")
-            }
-
-            if (!showMeta || meta.isBlank()) {
-                views.setViewVisibility(ids.meta, View.GONE)
+            val room = lesson.room.trim()
+            if (room.isNotBlank()) {
+                views.setViewVisibility(ids.room, View.VISIBLE)
+                views.setTextViewText(ids.room, room)
+                views.setTextColor(
+                    ids.room,
+                    (if (faded) palette.textMuted else palette.accent).toArgb(),
+                )
+                views.tintChip(ids.room, palette.tint(if (faded) 0.08f else 0.2f).toArgb())
+                views.sp(ids.room, subjectSp * 0.85f)
             } else {
-                views.setViewVisibility(ids.meta, View.VISIBLE)
-                views.setTextViewText(ids.meta, meta)
-                views.setTextColor(ids.meta, palette.textSecondary.toArgb())
-                views.sp(ids.meta, subjectSp * 0.72f)
+                views.setViewVisibility(ids.room, View.GONE)
             }
         }
-    }
-
-    /** Сайт сокращает тип до «Лек»/«Пр»/«Лаб» — в виджете пишем полностью. */
-    private fun typeLabel(raw: String): String = when (raw.trim().lowercase()) {
-        "лек" -> "Лекция"
-        "пр" -> "Практика"
-        "лаб" -> "Лабораторная"
-        else -> raw.trim()
     }
 
     override fun getViewTypeCount(): Int = 1
@@ -431,22 +430,24 @@ private class DayStackFactory(
 
     private data class RowIds(
         val row: Int,
+        val left: Int,
         val time: Int,
+        val type: Int,
         val pill: Int,
         val subject: Int,
-        val meta: Int,
+        val room: Int,
     )
 
     companion object {
         private val ROW_IDS = listOf(
-            RowIds(R.id.row_1, R.id.row_time_1, R.id.row_pill_1, R.id.row_subject_1, R.id.row_meta_1),
-            RowIds(R.id.row_2, R.id.row_time_2, R.id.row_pill_2, R.id.row_subject_2, R.id.row_meta_2),
-            RowIds(R.id.row_3, R.id.row_time_3, R.id.row_pill_3, R.id.row_subject_3, R.id.row_meta_3),
-            RowIds(R.id.row_4, R.id.row_time_4, R.id.row_pill_4, R.id.row_subject_4, R.id.row_meta_4),
-            RowIds(R.id.row_5, R.id.row_time_5, R.id.row_pill_5, R.id.row_subject_5, R.id.row_meta_5),
-            RowIds(R.id.row_6, R.id.row_time_6, R.id.row_pill_6, R.id.row_subject_6, R.id.row_meta_6),
-            RowIds(R.id.row_7, R.id.row_time_7, R.id.row_pill_7, R.id.row_subject_7, R.id.row_meta_7),
-            RowIds(R.id.row_8, R.id.row_time_8, R.id.row_pill_8, R.id.row_subject_8, R.id.row_meta_8),
+            RowIds(R.id.row_1, R.id.row_left_1, R.id.row_time_1, R.id.row_type_1, R.id.row_pill_1, R.id.row_subject_1, R.id.row_room_1),
+            RowIds(R.id.row_2, R.id.row_left_2, R.id.row_time_2, R.id.row_type_2, R.id.row_pill_2, R.id.row_subject_2, R.id.row_room_2),
+            RowIds(R.id.row_3, R.id.row_left_3, R.id.row_time_3, R.id.row_type_3, R.id.row_pill_3, R.id.row_subject_3, R.id.row_room_3),
+            RowIds(R.id.row_4, R.id.row_left_4, R.id.row_time_4, R.id.row_type_4, R.id.row_pill_4, R.id.row_subject_4, R.id.row_room_4),
+            RowIds(R.id.row_5, R.id.row_left_5, R.id.row_time_5, R.id.row_type_5, R.id.row_pill_5, R.id.row_subject_5, R.id.row_room_5),
+            RowIds(R.id.row_6, R.id.row_left_6, R.id.row_time_6, R.id.row_type_6, R.id.row_pill_6, R.id.row_subject_6, R.id.row_room_6),
+            RowIds(R.id.row_7, R.id.row_left_7, R.id.row_time_7, R.id.row_type_7, R.id.row_pill_7, R.id.row_subject_7, R.id.row_room_7),
+            RowIds(R.id.row_8, R.id.row_left_8, R.id.row_time_8, R.id.row_type_8, R.id.row_pill_8, R.id.row_subject_8, R.id.row_room_8),
         )
     }
 }
