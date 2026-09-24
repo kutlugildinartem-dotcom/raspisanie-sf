@@ -45,7 +45,7 @@
             android:textSize="13sp"
             android:textColor="#FF4FD1C5" />
 
-        <Space
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="10dp" />
 
