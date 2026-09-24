@@ -33,9 +33,8 @@ import java.util.Locale
 /**
  * Виджет «Неделя»: только текущая неделя, крупным текстом.
  *
- * Шесть дней с парами крупным шрифтом не влезают ни в один размер виджета,
- * поэтому это прокручиваемый список (ListView листается свайпом вверх-вниз),
- * который при каждой перерисовке сам встаёт на сегодняшний день.
+ * Список (ListView листается свайпом вверх-вниз), который всегда начинается
+ * с сегодняшнего дня — см. [WeekData].
  */
 class WeekWidgetReceiver : AppWidgetProvider() {
 
@@ -79,10 +78,10 @@ class WeekWidgetReceiver : AppWidgetProvider() {
                     .getOrNull()
                 val palette = snapshot?.palette ?: Palette.from(AppTheme.Default)
                 val scale = snapshot?.textScale ?: 1f
-                val today = LocalDate.now()
-                val monday = ScheduleRepository.mondayOf(today)
+                val monday = snapshot?.monday ?: ScheduleRepository.mondayOf(LocalDate.now())
 
                 views.setInt(R.id.week_bg, "setColorFilter", palette.surface.toArgb())
+                views.setTextViewText(R.id.week_title, snapshot?.title ?: "Эта неделя")
                 views.setTextColor(R.id.week_title, palette.textPrimary.toArgb())
                 views.setTextViewTextSize(R.id.week_title, TypedValue.COMPLEX_UNIT_SP, 22f * scale)
                 views.setTextViewText(R.id.week_range, weekRange(monday))
@@ -90,11 +89,9 @@ class WeekWidgetReceiver : AppWidgetProvider() {
                 views.setTextViewTextSize(R.id.week_range, TypedValue.COMPLEX_UNIT_SP, 14f * scale)
                 views.setTextColor(R.id.week_list_empty, palette.textSecondary.toArgb())
 
-                // Список встаёт на сегодняшний день, а не на понедельник.
-                val todayRow = snapshot?.rows
-                    ?.indexOfFirst { it is WeekRow.Day && it.date >= today }
-                    ?.takeIf { it >= 0 } ?: 0
-                views.setScrollPosition(R.id.week_list, todayRow)
+                // Список начинается с сегодняшнего дня; после каждого обновления
+                // возвращаемся в его начало, даже если перед этим прокрутили.
+                views.setScrollPosition(R.id.week_list, 0)
 
                 manager.updateAppWidget(appWidgetId, views)
                 manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.week_list)
@@ -125,12 +122,21 @@ internal sealed interface WeekRow {
     data class Note(val text: String) : WeekRow
 }
 
-/** Всё, что нужно для отрисовки недели. Общая загрузка для render() и фабрики списка. */
+/**
+ * Всё, что нужно для отрисовки недели. Общая загрузка для render() и фабрики списка.
+ *
+ * Список начинается с сегодняшнего дня: прокрутить виджет так, чтобы нужная
+ * строка оказалась вверху, RemoteViews не позволяют (setScrollPosition лишь
+ * дотягивает её до нижнего края), поэтому прошедшие дни недели не показываем.
+ * Если от текущей недели ничего не осталось (воскресенье без пар) — следующая.
+ */
 internal class WeekData(
     val rows: List<WeekRow>,
     val palette: Palette,
     val textScale: Float,
     val notes: Map<String, SubjectNoteEntity>,
+    val title: String,
+    val monday: LocalDate,
 ) {
     companion object {
         suspend fun load(context: Context, appWidgetId: Int): WeekData {
@@ -140,22 +146,48 @@ internal class WeekData(
             val config = store.widgetConfig(appWidgetId)
             val groupId = if (config.groupIdOverride > 0) config.groupIdOverride else settings.groupId
             val palette = Palette.from(settings.theme)
-
-            if (groupId == 0) return WeekData(emptyList(), palette, settings.widgetTextScale, emptyMap())
-
             val today = LocalDate.now()
-            val monday = ScheduleRepository.mondayOf(today)
+            val thisMonday = ScheduleRepository.mondayOf(today)
+
+            if (groupId == 0) {
+                return WeekData(
+                    emptyList(), palette, settings.widgetTextScale, emptyMap(), "Эта неделя", thisMonday,
+                )
+            }
+
+            var monday = thisMonday
+            var title = "Эта неделя"
+            var rows = buildRows(repo, groupId, thisMonday, from = today)
+            if (rows.none { it is WeekRow.Day }) {
+                val next = thisMonday.plusWeeks(1)
+                val nextRows = buildRows(repo, groupId, next, from = next)
+                if (nextRows.any { it is WeekRow.Day }) {
+                    monday = next
+                    title = "Следующая неделя"
+                    rows = nextRows
+                }
+            }
+            return WeekData(rows, palette, settings.widgetTextScale, repo.notes(groupId), title, monday)
+        }
+
+        private suspend fun buildRows(
+            repo: ScheduleRepository,
+            groupId: Int,
+            monday: LocalDate,
+            from: LocalDate,
+        ): List<WeekRow> {
             val byDate = repo.cachedWeek(groupId, monday)
                 .mapNotNull { day ->
                     runCatching { LocalDate.parse(day.isoDate) }.getOrNull()?.let { it to day }
                 }
                 .toMap()
-
-            val rows: List<WeekRow> = if (byDate.isEmpty()) {
-                listOf(WeekRow.Note("Нет данных на эту неделю — откройте приложение, чтобы загрузить"))
-            } else buildList<WeekRow> {
+            if (byDate.isEmpty()) {
+                return listOf(WeekRow.Note("Нет данных на эту неделю — откройте приложение, чтобы загрузить"))
+            }
+            return buildList {
                 for (offset in 0..6) {
                     val date = monday.plusDays(offset.toLong())
+                    if (date < from) continue
                     val lessons = byDate[date]?.realLessons.orEmpty()
                     // Воскресенье показываем, только если в нём есть пары.
                     if (date.dayOfWeek == DayOfWeek.SUNDAY && lessons.isEmpty()) continue
@@ -164,7 +196,6 @@ internal class WeekData(
                     else lessons.forEach { add(WeekRow.Item(date, it)) }
                 }
             }
-            return WeekData(rows, palette, settings.widgetTextScale, repo.notes(groupId))
         }
     }
 }

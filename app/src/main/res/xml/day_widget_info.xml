@@ -6,6 +6,8 @@
     android:previewLayout="@layout/widget_day_preview"
     android:minWidth="180dp"
     android:minHeight="160dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="70dp"
     android:targetCellWidth="4"
     android:targetCellHeight="3"
     android:resizeMode="horizontal|vertical"

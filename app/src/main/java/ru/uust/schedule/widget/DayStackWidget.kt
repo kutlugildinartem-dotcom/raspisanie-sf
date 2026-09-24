@@ -148,7 +148,6 @@ private class DayStackFactory(
     private var showTeacher = true
     private var maxRows = 4
     private var cardHeightDp = 180
-    private var compact = false
     private var textScale = 1f
     private var today: LocalDate = LocalDate.now()
     private var nowMinutes = 0
@@ -238,13 +237,16 @@ private class DayStackFactory(
             ?: options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)?.takeIf { it > 0 }
             ?: 180
         cardHeightDp = heightDp
-
-        compact = heightDp < 200
-        val rowHeight = ((if (compact) 32 else 46) * textScale).toInt().coerceAtLeast(20)
-        val header = (74 * textScale).toInt()
-        val available = (heightDp - header).coerceAtLeast(rowHeight)
-        maxRows = (available / rowHeight).coerceIn(1, 8)
+        maxRows = (rowsAreaDp() / (36f * textScale)).toInt().coerceIn(1, 8)
     }
+
+    /** Высота заголовка карточки: название дня, плашка с датой и отступы. */
+    private fun headerDp(): Float = titleSp() + 15f * textScale * 1.2f + 50f
+
+    private fun titleSp(): Float = (if (cardHeightDp < 130) 22f else 28f) * textScale
+
+    /** Сколько места остаётся под пары — его они и делят поровну. */
+    private fun rowsAreaDp(): Float = (cardHeightDp - headerDp()).coerceAtLeast(36f)
 
     override fun getCount(): Int = items.size.coerceAtLeast(1)
 
@@ -263,6 +265,7 @@ private class DayStackFactory(
         // Тонирование белой фигуры вместо Bitmap: тот же вид, но в транзакцию
         // уходит идентификатор ресурса и один int, а не мегабайт пикселей.
         views.setInt(R.id.item_bg, "setColorFilter", palette.surface.toArgb())
+        views.setViewVisibility(R.id.item_count, View.GONE)
         return views
     }
 
@@ -270,8 +273,7 @@ private class DayStackFactory(
         val views = newCard()
         views.setTextViewText(R.id.item_title, "RUUNIT")
         views.setTextColor(R.id.item_title, palette.textPrimary.toArgb())
-        views.setTextViewText(R.id.item_date, "")
-        views.setTextViewText(R.id.item_count, "")
+        views.setViewVisibility(R.id.item_date, View.GONE)
         views.setViewVisibility(R.id.item_rows, View.GONE)
         views.setViewVisibility(R.id.item_empty, View.VISIBLE)
         views.setTextViewText(R.id.item_empty, text)
@@ -294,21 +296,23 @@ private class DayStackFactory(
 
         views.setTextViewText(R.id.item_title, DayLogic.title(item.date, today))
         views.setTextColor(R.id.item_title, palette.textPrimary.toArgb())
-        views.setTextSize(R.id.item_title, 22f)
+        views.sp(R.id.item_title, titleSp())
 
+        // Дата — залитой плашкой акцентного цвета, чтобы читалась с первого взгляда.
         views.setTextViewText(
             R.id.item_date,
             DayLogic.shortDay(item.date) + ", " + DayLogic.formatDate(item.date),
         )
-        views.setTextColor(R.id.item_date, palette.accent.toArgb())
-        views.setTextSize(R.id.item_date, 13f)
-
-        views.setTextViewText(
-            R.id.item_count,
-            if (lessons.isEmpty()) "" else "${lessons.size} пар",
-        )
-        views.setTextColor(R.id.item_count, palette.textMuted.toArgb())
-        views.setTextSize(R.id.item_count, 13f)
+        views.setTextColor(R.id.item_date, palette.onAccent.toArgb())
+        views.sp(R.id.item_date, 15f * textScale)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            views.setColorStateList(
+                R.id.item_date, "setBackgroundTintList",
+                android.content.res.ColorStateList.valueOf(palette.accent.toArgb()),
+            )
+        } else {
+            views.setInt(R.id.item_date, "setBackgroundColor", palette.accent.toArgb())
+        }
 
         if (lessons.isEmpty()) {
             views.setViewVisibility(R.id.item_rows, View.GONE)
@@ -318,7 +322,7 @@ private class DayStackFactory(
                 if (item.day == null) "Нет данных" else "Пар нет",
             )
             views.setTextColor(R.id.item_empty, palette.textSecondary.toArgb())
-            views.setTextSize(R.id.item_empty, 15f)
+            views.sp(R.id.item_empty, 20f * textScale)
         } else {
             views.setViewVisibility(R.id.item_empty, View.GONE)
             views.setViewVisibility(R.id.item_rows, View.VISIBLE)
@@ -329,13 +333,28 @@ private class DayStackFactory(
         return views
     }
 
-    /** Размер шрифта с учётом выбранного пользователем масштаба виджета. */
-    private fun RemoteViews.setTextSize(viewId: Int, baseSp: Float) {
-        setTextViewTextSize(viewId, TypedValue.COMPLEX_UNIT_SP, baseSp * textScale)
+    private fun RemoteViews.sp(viewId: Int, value: Float) {
+        setTextViewTextSize(viewId, TypedValue.COMPLEX_UNIT_SP, value)
     }
 
+    /**
+     * Пары делят всю высоту карточки поровну, а шрифт подбирается под высоту
+     * строки: мало пар — крупно, без пустого места внизу; много — мельче,
+     * но всё помещается. Если все пары не влезают, сегодня сначала выпадают
+     * уже прошедшие.
+     */
     private fun fillRows(views: RemoteViews, date: LocalDate, lessons: List<Lesson>) {
-        val shown = lessons.take(maxRows)
+        val shown = if (lessons.size > maxRows && date == today) {
+            lessons.filterNot { it.endMin in 0..nowMinutes }.ifEmpty { lessons }.take(maxRows)
+        } else {
+            lessons.take(maxRows)
+        }
+
+        val rowDp = rowsAreaDp() / shown.size
+        val subjectSp = minOf((rowDp * 0.34f).coerceIn(15f, 24f) * textScale, rowDp * 0.45f)
+            .coerceAtLeast(12f)
+        val showMeta = rowDp >= subjectSp * 2.3f
+        val newApi = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
 
         ROW_IDS.forEachIndexed { index, ids ->
             val lesson = shown.getOrNull(index)
@@ -354,19 +373,21 @@ private class DayStackFactory(
 
             views.setTextViewText(ids.time, lesson.timeRange.take(5))
             views.setTextColor(ids.time, (if (isNow) palette.accent else palette.textMuted).toArgb())
-            views.setTextSize(ids.time, 13f)
+            views.sp(ids.time, subjectSp * 0.85f)
 
             views.setInt(ids.pill, "setColorFilter", subjectColor.toArgb())
+            if (newApi) {
+                views.setViewLayoutHeight(ids.pill, rowDp * 0.6f, TypedValue.COMPLEX_UNIT_DIP)
+            }
 
             views.setTextViewText(ids.subject, lesson.subject)
             views.setTextColor(
                 ids.subject,
                 (if (isPast && !isNow) palette.textMuted else palette.textPrimary).toArgb(),
             )
-            views.setTextSize(ids.subject, 15f)
+            views.sp(ids.subject, subjectSp)
 
             // Невыполненная домашка вытесняет всё остальное: ради неё в виджет и смотрят.
-            // Точка перед текстом — тот же ненавязчивый маркер, что и в приложении.
             val record = records[RecordKey(date.toString(), lesson.subject, lesson.number)]
                 ?: records[RecordKey(date.toString(), lesson.subject, 0)]
             val meta = when {
@@ -374,7 +395,7 @@ private class DayStackFactory(
                     "• " + record.homework
                 !note?.note.isNullOrBlank() -> note!!.note
                 else -> listOfNotNull(
-                    lesson.type.ifBlank { null },
+                    typeLabel(lesson.type).ifBlank { null },
                     lesson.room.ifBlank { null },
                     if (showTeacher) {
                         note?.teacherFull?.ifBlank { null } ?: lesson.teacher.ifBlank { null }
@@ -382,15 +403,23 @@ private class DayStackFactory(
                 ).joinToString(" · ")
             }
 
-            if (compact || meta.isBlank()) {
+            if (!showMeta || meta.isBlank()) {
                 views.setViewVisibility(ids.meta, View.GONE)
             } else {
                 views.setViewVisibility(ids.meta, View.VISIBLE)
                 views.setTextViewText(ids.meta, meta)
-                views.setTextColor(ids.meta, palette.textMuted.toArgb())
-                views.setTextSize(ids.meta, 12f)
+                views.setTextColor(ids.meta, palette.textSecondary.toArgb())
+                views.sp(ids.meta, subjectSp * 0.72f)
             }
         }
+    }
+
+    /** Сайт сокращает тип до «Лек»/«Пр»/«Лаб» — в виджете пишем полностью. */
+    private fun typeLabel(raw: String): String = when (raw.trim().lowercase()) {
+        "лек" -> "Лекция"
+        "пр" -> "Практика"
+        "лаб" -> "Лабораторная"
+        else -> raw.trim()
     }
 
     override fun getViewTypeCount(): Int = 1

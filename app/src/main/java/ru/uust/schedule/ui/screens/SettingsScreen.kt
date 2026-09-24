@@ -164,50 +164,6 @@ fun SettingsScreen(vm: ScheduleViewModel) {
                 color = palette.textMuted,
             )
 
-            Spacer(Modifier.height(16.dp))
-            val batteryContext = LocalContext.current
-            // ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS оказался ненадёжным:
-            // на Samsung нажатие не показывало вообще ничего — у One UI своя,
-            // отдельная от стандартного Doze система «спящих приложений»,
-            // и универсального интента прямо в её экран нет. Страница «Об
-            // приложении» открывается на любой прошивке гарантированно —
-            // дальше пользователь сам находит «Батарея» внутри неё.
-            val ignoringOptimizations = remember {
-                val pm = batteryContext.getSystemService(android.os.PowerManager::class.java)
-                pm?.isIgnoringBatteryOptimizations(batteryContext.packageName) ?: true
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Виджет не обновляется?",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = palette.textPrimary,
-                    )
-                    Text(
-                        "Некоторые прошивки (Samsung, Xiaomi и др.) сами останавливают фоновую " +
-                            "службу виджета, экономя батарею. Откройте настройки приложения → " +
-                            "«Батарея» → уберите ограничения" +
-                            (if (!ignoringOptimizations) " (сейчас система их ограничивает)" else ""),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = palette.textMuted,
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                ActionButton("Настройки") {
-                    val intent = android.content.Intent(
-                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        android.net.Uri.parse("package:${batteryContext.packageName}"),
-                    )
-                    val opened = runCatching { batteryContext.startActivity(intent) }.isSuccess
-                    if (!opened) {
-                        android.widget.Toast.makeText(
-                            batteryContext,
-                            "Не удалось открыть — найдите RUUNIT в настройках вручную",
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
-                    }
-                }
-            }
         }
 
         Section("Переход на завтра") {
