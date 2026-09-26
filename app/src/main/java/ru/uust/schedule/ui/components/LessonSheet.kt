@@ -130,25 +130,26 @@ fun LessonSheet(
                     colors = textFieldColors(),
                 )
 
+                // Срок и файлы видны сразу, ещё до того, как набран текст задания.
+                Spacer(Modifier.height(12.dp))
+                DueDatePicker(
+                    due = due,
+                    today = today,
+                    upcomingLessonDates = upcomingLessonDates,
+                    onPick = { due = it },
+                )
+
+                Spacer(Modifier.height(14.dp))
+                AttachmentsSection(
+                    attachments = attachments,
+                    onAdd = { picker.launch(arrayOf("*/*")) },
+                    onOpen = { uri -> openFile(context, uri) },
+                    onRemove = onDetach,
+                )
+
                 if (homework.isNotBlank()) {
                     Spacer(Modifier.height(12.dp))
-                    DueDatePicker(
-                        due = due,
-                        today = today,
-                        upcomingLessonDates = upcomingLessonDates,
-                        onPick = { due = it },
-                    )
-
-                    Spacer(Modifier.height(12.dp))
                     DoneRow(done) { done = !done }
-
-                    Spacer(Modifier.height(14.dp))
-                    AttachmentsSection(
-                        attachments = attachments,
-                        onAdd = { picker.launch(arrayOf("*/*")) },
-                        onOpen = { uri -> openFile(context, uri) },
-                        onRemove = onDetach,
-                    )
                 }
 
                 if (isPastDay) {
@@ -209,7 +210,7 @@ private fun DueDatePicker(
     }
 
     Column {
-        Text("Срок", style = MaterialTheme.typography.labelMedium, color = palette.textMuted)
+        Text("Сдать к паре", style = MaterialTheme.typography.labelMedium, color = palette.textMuted)
         Spacer(Modifier.height(8.dp))
         Row(
             Modifier.horizontalScroll(rememberScrollState()),

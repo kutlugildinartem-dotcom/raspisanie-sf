@@ -75,6 +75,10 @@ fun SubjectsScreen(vm: ScheduleViewModel) {
     var editing by remember { mutableStateOf<SubjectSummary?>(null) }
     var deleting by remember { mutableStateOf<SubjectSummary?>(null) }
     var adding by remember { mutableStateOf(false) }
+    var homeworkTarget by remember {
+        mutableStateOf<Triple<java.time.LocalDate, ru.uust.schedule.domain.Lesson,
+            ru.uust.schedule.data.local.LessonRecordEntity?>?>(null)
+    }
     var reloadToken by remember { mutableStateOf(0) }
 
     LaunchedEffect(settings.groupId, notes.size, reloadToken) {
@@ -150,6 +154,12 @@ fun SubjectsScreen(vm: ScheduleViewModel) {
             summary = summary,
             existing = notes[summary.subject],
             onDismiss = { editing = null },
+            onAddHomework = {
+                editing = null
+                vm.openSubjectHomework(summary.subject) { date, lesson, record ->
+                    homeworkTarget = Triple(date, lesson, record)
+                }
+            },
             onSave = { text, hue, teacher ->
                 vm.saveNote(
                     subject = summary.subject,
@@ -159,6 +169,38 @@ fun SubjectsScreen(vm: ScheduleViewModel) {
                     teacherFull = teacher,
                 )
                 editing = null
+            },
+        )
+    }
+
+    homeworkTarget?.let { (date, lesson, record) ->
+        val ui by vm.ui.collectAsStateWithLifecycle()
+        val today = java.time.LocalDate.now()
+        var upcoming by remember(date, lesson.subject) {
+            mutableStateOf<List<java.time.LocalDate>>(emptyList())
+        }
+        LaunchedEffect(date, lesson.subject, lesson.number) {
+            vm.loadAttachments(date, lesson.subject, lesson.number)
+            // Задание с прошедшей пары сдают к следующей паре начиная с сегодня,
+            // а не к той, что шла сразу после неё и уже прошла.
+            val after = if (date < today) today.minusDays(1) else date
+            vm.loadUpcomingLessonDates(lesson.subject, after) { upcoming = it }
+        }
+        ru.uust.schedule.ui.components.LessonSheet(
+            lesson = lesson,
+            date = date,
+            today = today,
+            record = record,
+            attachments = ui.attachments,
+            upcomingLessonDates = upcoming,
+            onDismiss = { homeworkTarget = null },
+            onAttach = { uri, name ->
+                vm.attachFile(date, lesson.subject, lesson.number, uri, name)
+            },
+            onDetach = { uri -> vm.detachFile(date, lesson.subject, lesson.number, uri) },
+            onSave = { homework, done, grade, dueDate ->
+                vm.saveRecord(date, lesson.subject, lesson.number, homework, done, grade, dueDate)
+                homeworkTarget = null
             },
         )
     }
@@ -356,6 +398,7 @@ private fun NoteDialog(
     summary: SubjectSummary,
     existing: SubjectNoteEntity?,
     onDismiss: () -> Unit,
+    onAddHomework: () -> Unit,
     onSave: (String, Int, String) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -371,6 +414,24 @@ private fun NoteDialog(
         title = { Text(summary.subject, style = MaterialTheme.typography.titleMedium) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(palette.tint(0.16f))
+                        .quietClickable(onAddHomework)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "+ Добавить домашнее задание",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = palette.accent,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+
                 if (summary.rooms.isNotEmpty()) {
                     Text(
                         "Аудитории: " + summary.rooms.take(3).joinToString(", "),

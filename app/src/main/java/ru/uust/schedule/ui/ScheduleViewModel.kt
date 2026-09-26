@@ -366,6 +366,42 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Даты двух ближайших пар по предмету — для подсказок «к следующей» / «через пару». */
+    /**
+     * Куда записать новое задание по предмету из вкладки «Предметы».
+     *
+     * Обычно — на последнюю прошедшую пару. Если там уже есть задание, новое
+     * не должно его затирать: тогда берём отдельную запись на сегодня
+     * (номер 0 — «без пары»), она так же попадает в «Задания» и под сегодняшнюю
+     * пару по этому предмету, если она есть.
+     */
+    fun openSubjectHomework(
+        subject: String,
+        onResult: (LocalDate, ru.uust.schedule.domain.Lesson, LessonRecordEntity?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val groupId = settings.value.groupId
+            val today = LocalDate.now()
+            val ref = repo.referenceLesson(groupId, subject, today)
+
+            if (ref != null) {
+                val (date, lesson) = ref
+                val records = repo.recordsFor(groupId, date)
+                val existing = records[RecordKey(date.toString(), subject, lesson.number)]
+                    ?: records[RecordKey(date.toString(), subject, 0)]
+                if (existing == null || existing.homework.isBlank()) {
+                    onResult(date, lesson, existing)
+                    return@launch
+                }
+            }
+
+            val blank = ru.uust.schedule.domain.Lesson(
+                number = 0, type = "", subject = subject, room = "", teacher = "",
+            )
+            val todayRecord = repo.recordsFor(groupId, today)[RecordKey(today.toString(), subject, 0)]
+            onResult(today, blank, todayRecord)
+        }
+    }
+
     fun loadUpcomingLessonDates(subject: String, after: LocalDate, onResult: (List<LocalDate>) -> Unit) {
         viewModelScope.launch {
             onResult(repo.upcomingLessonDates(settings.value.groupId, subject, after))

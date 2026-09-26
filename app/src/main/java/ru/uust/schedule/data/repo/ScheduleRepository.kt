@@ -368,6 +368,29 @@ class ScheduleRepository(
      * этого хватает даже для предметов раз в две недели, а искать дальше
      * означало бы синхронно поднимать недели, которых ещё нет.
      */
+    /**
+     * Пара, к которой привязать домашку, добавленную из «Предметов»: последняя
+     * по предмету не позже [today] (задание обычно дают на прошедшей паре),
+     * а если их ещё не было — ближайшая следующая.
+     */
+    suspend fun referenceLesson(
+        groupId: Int,
+        subject: String,
+        today: LocalDate,
+    ): Pair<LocalDate, Lesson>? = withContext(Dispatchers.IO) {
+        val days = db.scheduleDao().daysBetween(groupId, "0000-00-00", "9999-99-99")
+            .mapNotNull { entity ->
+                val date = runCatching { LocalDate.parse(entity.isoDate) }.getOrNull()
+                    ?: return@mapNotNull null
+                val lessons = entity.toDomain().realLessons.filter { it.subject == subject }
+                if (lessons.isEmpty()) null else date to lessons
+            }
+        days.filter { it.first <= today }.maxByOrNull { it.first }
+            ?.let { (date, lessons) -> date to lessons.last() }
+            ?: days.filter { it.first > today }.minByOrNull { it.first }
+                ?.let { (date, lessons) -> date to lessons.first() }
+    }
+
     suspend fun upcomingLessonDates(
         groupId: Int,
         subject: String,
