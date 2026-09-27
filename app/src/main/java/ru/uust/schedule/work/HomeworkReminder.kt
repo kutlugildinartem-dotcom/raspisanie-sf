@@ -66,18 +66,50 @@ object HomeworkReminder {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    /** Несданные задания, до срока которых осталось выбранное число дней. */
+    private val sentLock = Any()
+    private const val PREFS = "homework_reminders"
+    private const val KEY_SENT = "sent"
+
+    /**
+     * Несданные задания, до срока которых осталось выбранное число дней.
+     *
+     * Вызывается и ежедневным будильником, и фоновой задачей раз в полчаса:
+     * раньше проверка шла только в сам час напоминания, и задание, добавленное
+     * позже этого часа, или пропущенный системой будильник означали, что
+     * напоминания не будет вовсе. Что уже отправлено — запоминаем, чтобы
+     * каждое напоминание пришло ровно один раз.
+     */
     suspend fun notifyDue(context: Context) {
         val settings = SettingsStore.get(context).current()
         if (!settings.homeworkReminder || settings.groupId == 0) return
-        val today = LocalDate.now()
+
+        val now = LocalDateTime.now()
+        val today = now.toLocalDate()
+        // Неточный будильник может сработать на пару минут раньше часа.
+        val start = today.atTime(settings.homeworkReminderHour.coerceIn(0, 23), 0).minusMinutes(5)
+        if (now.isBefore(start)) return
+
         val days = settings.homeworkReminderDays.toSet()
-        ScheduleRepository.get(context).homework(settings.groupId)
-            .filter { !it.done }
-            .forEach { item ->
-                val left = java.time.temporal.ChronoUnit.DAYS.between(today, item.due).toInt()
-                if (left in days) show(context, item, left)
+        val items = ScheduleRepository.get(context).homework(settings.groupId).filter { !it.done }
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        synchronized(sentLock) {
+            val sent = prefs.getStringSet(KEY_SENT, emptySet()).orEmpty().toMutableSet()
+            // Ключ заканчивается на «срок|дней» — всё со сроком в прошлом больше не нужно.
+            sent.removeAll { key ->
+                val parts = key.split('|')
+                val due = parts.getOrNull(parts.size - 2)
+                    ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                due == null || due < today
             }
+            items.forEach { item ->
+                val left = java.time.temporal.ChronoUnit.DAYS.between(today, item.due).toInt()
+                if (left !in days) return@forEach
+                val key = "${item.lessonDate}|${item.subject}|${item.lessonNumber}|${item.due}|$left"
+                if (sent.add(key)) show(context, item, left)
+            }
+            prefs.edit().putStringSet(KEY_SENT, sent).apply()
+        }
     }
 
     private fun show(context: Context, item: HomeworkItem, daysLeft: Int) {

@@ -26,6 +26,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -209,6 +210,50 @@ fun SettingsScreen(vm: ScheduleViewModel) {
         }
 
         Section("Уведомления") {
+            val notifContext = LocalContext.current
+            var notificationsAllowed by androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(true)
+            }
+            // Проверяем при каждом возвращении на экран — пользователь мог
+            // только что включить уведомления в системных настройках.
+            androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+                notificationsAllowed = androidx.core.app.NotificationManagerCompat
+                    .from(notifContext).areNotificationsEnabled()
+                onPauseOrDispose { }
+            }
+            if (!notificationsAllowed) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(palette.danger.copy(alpha = 0.12f))
+                        .padding(horizontal = 13.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Уведомления для RUUNIT выключены в настройках телефона — " +
+                            "ни одно напоминание не придёт",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.danger,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    ActionButton("Включить") {
+                        runCatching {
+                            notifContext.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS,
+                                ).putExtra(
+                                    android.provider.Settings.EXTRA_APP_PACKAGE,
+                                    notifContext.packageName,
+                                ),
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+
             ToggleRow(
                 title = "Напоминать о парах",
                 subtitle = "За ${settings.notifyMinutesBefore} мин до начала",

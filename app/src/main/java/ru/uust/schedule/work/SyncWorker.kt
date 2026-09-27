@@ -36,14 +36,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 WidgetUpdater.updateAllNow(applicationContext)
                 return Result.retry()
             }
-            sync.getOrNull()?.let { result ->
-                if (settings.notifyScheduleChanges && result.changedDates.isNotEmpty()) {
-                    LessonNotifier.showScheduleChanged(applicationContext, result.changedDates)
-                }
-                if (settings.notifyNextWeekAdded && 1 in result.weekPublishedOffsets) {
-                    LessonNotifier.showNextWeekAdded(applicationContext)
-                }
-            }
+            // Уведомления об изменениях отправляет сам ScheduleRepository.syncWeeks.
         }
 
         WidgetUpdater.updateAllNow(applicationContext)
@@ -51,11 +44,14 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (settings.notificationsEnabled) {
             LessonNotifier.rescheduleToday(applicationContext)
         }
+        // Страховка к ежедневному будильнику: если он не сработал или задание
+        // появилось уже после часа напоминания — сообщим при ближайшем запуске.
+        runCatching { HomeworkReminder.notifyDue(applicationContext) }
         return Result.success()
     }
 
     companion object {
-        const val CACHE_TTL_MINUTES = 180L
+        const val CACHE_TTL_MINUTES = 60L
     }
 }
 

@@ -30,6 +30,7 @@ class ScheduleRepository(
     private val api: ScheduleApi = ScheduleApi(),
 ) {
     private val db = AppDatabase.get(context)
+    private val appContext = context.applicationContext
     private val settings = SettingsStore.get(context)
     private val json = Json { ignoreUnknownKeys = true }
     private val lessonsSerializer = ListSerializer(Lesson.serializer())
@@ -181,8 +182,27 @@ class ScheduleRepository(
             }
 
             db.scheduleDao().pruneOlderThan(LocalDate.now().minusDays(30).toString())
-            SyncResult(saved, changed, weekPublished)
+            SyncResult(saved, changed, weekPublished).also { reportChanges(it) }
         }
+
+    /**
+     * Уведомления об изменениях — здесь, а не в фоновой задаче: расписание
+     * обновляет и само приложение при каждом открытии, и раньше найденные
+     * при этом изменения молча уходили в кеш. Фоновая задача потом видела
+     * свежий кеш, не ходила на сайт, и уведомление не приходило никогда.
+     */
+    private suspend fun reportChanges(result: SyncResult) {
+        val s = settings.current()
+        val today = LocalDate.now()
+        // Правки уже прошедших дней никому не интересны.
+        val upcoming = result.changedDates.filter { it >= today }.sorted()
+        if (s.notifyScheduleChanges && upcoming.isNotEmpty()) {
+            ru.uust.schedule.work.LessonNotifier.showScheduleChanged(appContext, upcoming)
+        }
+        if (s.notifyNextWeekAdded && 1 in result.weekPublishedOffsets) {
+            ru.uust.schedule.work.LessonNotifier.showNextWeekAdded(appContext)
+        }
+    }
 
     /** Догружает неделю, если её нет в кеше — режимы «лента» и «две колонки» листают далеко. */
     suspend fun ensureWeekLoaded(groupId: Int, monday: LocalDate) = withContext(Dispatchers.IO) {
