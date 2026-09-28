@@ -301,6 +301,8 @@ private class DayStackFactory(
         views.sp(R.id.item_title, titleSp())
 
         // Дата — залитой плашкой акцентного цвета, чтобы читалась с первого взгляда.
+        // Видимость явно: карточка могла прийти из переиспользованной «заглушки».
+        views.setViewVisibility(R.id.item_date, View.VISIBLE)
         views.setTextViewText(
             R.id.item_date,
             DayLogic.shortDay(item.date) + ", " + DayLogic.formatDate(item.date),

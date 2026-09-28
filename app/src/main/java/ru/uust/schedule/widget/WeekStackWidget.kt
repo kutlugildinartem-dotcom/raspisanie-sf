@@ -296,6 +296,12 @@ private class WeekListFactory(
         val faded = (date < today || (date == today && lesson.endMin in 0..nowMinutes)) && !isNow
         val note = notes[lesson.subject]
 
+        // Список переиспользует строки: эта могла раньше быть «Пар нет», где
+        // колонка времени и метка скрыты. Без явного возврата они пропадали.
+        views.setViewVisibility(R.id.lesson_left, View.VISIBLE)
+        views.setViewVisibility(R.id.lesson_time, View.VISIBLE)
+        views.setViewVisibility(R.id.lesson_pill, View.VISIBLE)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             views.setViewLayoutWidth(
                 R.id.lesson_left, (if (timeRange) 100f else 60f) * textScale, TypedValue.COMPLEX_UNIT_DIP,
